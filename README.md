@@ -1,107 +1,89 @@
-# vinext-starter
+# Roamwise
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Roamwise är en personlig stadsguide. Besökaren anger stad, start- och slutadress, tider och
+intressen. Appen hämtar platser från öppna datakällor, placerar måltider och aktiviteter inom
+registrerade öppettider och räknar fram en gångrutt med tidsmarginal. Under dagen finns ett
+guideläge som följer med, räknar om vid förseningar och föreslår mat och tips i luckor. Turen
+sparas privat i webbläsaren via en cookie.
 
-## Prerequisites
+Appen körs på [vinext](https://github.com/cloudflare/vinext) (Next.js App Router på Cloudflare
+Workers) med Cloudflare D1 för sparade turer. Den utvecklades ursprungligen i OpenAI Sites, vars
+byggkedja finns kvar under `scripts/` och `.openai/`.
 
-- Node.js `>=22.13.0`
-- Linux with `flock`, `curl`, and GNU `timeout`
+## Kom igång
 
-## Sites Lifecycle
+Kräver Node.js 22.13 eller nyare.
 
-The Sites lifecycle CLI runs the locked dependency install before returning this checkout. Edit the source under `app/`, then checkpoint when a coherent milestone is ready to inspect or share. The remote Sites builder runs `npm run build` against the pushed commit. Do not repeat install or build as a normal pre-checkpoint step.
-
-This starter does not use `wrangler.jsonc`.
-
-`install:ci` is intentionally a single, non-retrying `npm ci`. It refuses a concurrent install for the same project, consumes a matching image-seeded npm cache with `--prefer-offline` while retaining registry fallback for a missing cache object, otherwise downloads and verifies the complete vinext tarball recorded in `package-lock.json`, limits npm to one socket, and terminates a stalled install. `build` applies a short timeout. These helpers target Linux and use GNU `timeout`; they are not native macOS scripts.
-
-Scripts that need writable project-scoped home, npm, XDG, and temporary paths use `scripts/sites-env.sh`. The `dev` and `start` scripts honor the caller's runtime environment and keep Wrangler logs inside the checkout. The generated `.sites-runtime/` directory is disposable and ignored by Git.
-
-## Included Shape
-
-- edit site code under `app/`
-- `app/chatgpt-auth.ts` provides optional dispatch-owned ChatGPT sign-in helpers
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/index.ts` reads the D1 binding from the Cloudflare Worker environment
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+npm ci
+npm run db:migrate:local
+npm run dev
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+`db:migrate:local` skapar tabellen för sparade turer i den lokala D1-databasen som dev-servern
+använder. Utan den svarar `/api/trip` med 503 och appen visar att turen inte kan sparas.
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+## Kommandon
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+| Kommando                   | Vad det gör                                                 |
+| -------------------------- | ----------------------------------------------------------- |
+| `npm run dev`              | Startar Vite/vinext med simulerade Cloudflare-bindningar    |
+| `npm run build`            | Bygger Worker och klient till `dist/`                       |
+| `npm start`                | Kör det byggda Worker-paketet lokalt                        |
+| `npm test`                 | Bygger och kör hela testsviten                              |
+| `npm run test:unit`        | Kör testerna som inte behöver ett bygge                     |
+| `npm run lint`             | ESLint                                                      |
+| `npm run typecheck`        | TypeScript utan utdata                                      |
+| `npm run format`           | Prettier på all källkod                                     |
+| `npm run db:generate`      | Genererar Drizzle-migreringar efter ändringar i `db/schema` |
+| `npm run db:migrate:local` | Applicerar migreringarna på den lokala D1-databasen         |
+| `npm run build:sites`      | Tidsbegränsat bygge för OpenAI Sites (kräver Linux)         |
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+Testerna använder Node:s inbyggda TypeScript-stöd. På Node 22.13–22.17 sätter testskriptet
+flaggan `--experimental-strip-types`; på nyare versioner behövs den inte.
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
+## Miljövariabler
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
+Alla externa tjänster kan bytas ut via miljövariabler, se [`.env.example`](.env.example). Kopiera
+filen till `.dev.vars` för lokal utveckling. Standardvärdena pekar på fria community-tjänster
+(Nominatim, Photon, Overpass, Valhalla, NYC Open Data) som har hastighetsgränser och saknar
+driftgarantier. Sätt `APP_URL` till den publika adressen så att OpenStreetMap-tjänsterna får en
+korrekt User-Agent och delningsbilder får rätt adress.
 
-## Diagnostic Commands
+## Kodstruktur
 
-- `npm run install:ci`: perform the one bounded lockfile install
-- `npm run dev`: start the Vite/Vinext development server
-- `npm run build`: build the deployable Sites artifact
-- `npm run start`: start the built Vinext application
-- `npm test`: build and verify the rendered development-preview metadata
-- `npm run db:generate`: generate Drizzle migrations after schema changes
+```
+app/
+  page.tsx            Sidans tillstånd och handlers; komponerar delarna nedan
+  components/         Presentationskomponenter (formulär, ruttlista, guide, karta, dialoger)
+  api/                API-routes: catalog, geo, walking, trip
+  planner.ts          Schemaläggning av stopp med öppettider, måltider och marginal
+  meals.ts            Tilldelning av frukost, lunch och middag till restauranger
+  route-builder.ts    Väljer kandidatplatser utifrån önskemål (testbar utan webbläsare)
+  cities.ts           Stadsspecifik kunskap: tidszoner, stadsdelar, områden, landmärken
+  catalog.ts          Kategorier och OpenStreetMap-selektorer
+  midtown-backup.ts   Kontrollerat reservutbud för New York när tjänsterna ligger nere
+  upstream.ts         Konfiguration av externa tjänster (server)
+  geo-client.ts       Klienter mot appens egna API-routes (webbläsare)
+db/                   Drizzle-schema och D1-åtkomst
+drizzle/              Genererade migreringar
+tests/                node:test-svit
+worker/index.ts       Cloudflare Worker-ingång
+```
 
-Use build commands for targeted diagnosis after a remote failure, not as part of the normal checkpoint path.
+## Städer
 
-The timeout defaults can be overridden for a controlled canary with `SITES_INSTALL_TIMEOUT`, `SITES_INSTALL_KILL_AFTER`, `SITES_BUILD_TIMEOUT`, and `SITES_BUILD_KILL_AFTER`. A timeout fails the command; the helpers never retry an unchanged install or build.
+Roamwise söker platser i hela världen via OpenStreetMap. Stadsspecifika funktioner som stadsdelar,
+områdesval för måltider och aktiviteter, restaurangregister och reservutbud finns i dag bara för
+New York. Lägg till en stad i `app/cities.ts` för att ge den tidszon, stadsdelar och områden.
 
-## Learn More
+## Datakällor
 
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+- Restauranger i New York: NYC Open Data, DOHMH Restaurant Inspection Results
+- Övriga platser: OpenStreetMap via Overpass
+- Adresser: Nominatim, med Photon som reserv
+- Gångvägar: Valhalla
+- Kartor: Leaflet med OpenStreetMap-kakel
+
+Öppettider och priser är inte verifierade. Appen säger tydligt vad som är uppskattat och vad som
+måste kontrolleras hos verksamheten.

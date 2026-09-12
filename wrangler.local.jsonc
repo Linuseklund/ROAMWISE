@@ -1,0 +1,17 @@
+// Local-only Wrangler config used by `npm run db:migrate:local`.
+// The dev server itself is configured by vite.config.ts (bindings are simulated
+// from .openai/hosting.json). This file only exists so that `wrangler d1` can
+// reach the same Miniflare state directory (.wrangler/state) as the dev server.
+{
+  "name": "roamwise-guide",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "site-creator-d1",
+      "database_id": "00000000-0000-4000-8000-000000000000",
+      "migrations_dir": "drizzle"
+    }
+  ]
+}
