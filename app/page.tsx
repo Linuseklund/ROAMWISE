@@ -20,7 +20,7 @@ type Place = {
 };
 
 const categoryLabel = (key: string) => categoryDefinitions.find((category) => category.key === key)?.label || key;
-const categoryGlyphs: Record<string,string> = { Restauranger:"♨", Klädbutiker:"▱", Sneakers:"◒", Museum:"△", Utställningar:"▣", Sevärdheter:"◎", Konserter:"♫", Nattklubbar:"✦", Butiker:"▱" };
+const categoryGlyphs: Record<string,string> = { Restauranger:"♨", Klädbutiker:"▱", Sneakers:"◒", Museum:"△", Utställningar:"▣", Sevärdheter:"◎", Konserter:"♫", Nattklubbar:"✦", Butiker:"▥" };
 const categoryImages: Record<string,string> = {
   Restauranger:"https://images.unsplash.com/photo-1517248135467-4c7edcad34c5?auto=format&fit=crop&w=220&q=80",
   Klädbutiker:"https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=220&q=80",
@@ -297,7 +297,7 @@ export default function Home() {
         const warnings:string[]=[],limited:string[]=[];
         const centers=distance(origin,destination)>1?[origin,{lat:(origin.lat+destination.lat)/2,lon:(origin.lon+destination.lon)/2},destination]:[origin];
         const results=await Promise.allSettled(needed.map(async category => {
-          const areaPoints:Record<string,Point>={Williamsburg:{lat:40.7178,lon:-73.958},Brooklyn:origin,Manhattan:{lat:40.754,lon:-73.984},Harlem:{lat:40.8081,lon:-73.9448}};
+          const areaPoints:Record<string,Point>={Williamsburg:{lat:40.7178,lon:-73.958},Brooklyn:{lat:40.6938,lon:-73.9903},Manhattan:{lat:40.754,lon:-73.984},Harlem:{lat:40.8081,lon:-73.9448},Queens:{lat:40.7447,lon:-73.9485},Bronx:{lat:40.8296,lon:-73.9262},'Staten Island':{lat:40.6437,lon:-74.0787}};
           const activityArea=activityPreferences[category]?.area;
           const searchCenters=activityArea&&areaPoints[activityArea]?[areaPoints[activityArea]]:centers;
           const mealSearches=category==='Restauranger'?Object.values(mealPreferences).filter(p=>p.area||p.food).map(p=>({center:areaPoints[p.area||'']||origin,options:p.food==='Grönt & lätt'?'Vegetariskt|Veganskt':p.food||'Alla',borough:p.area==='Williamsburg'?'Brooklyn':p.area==='Harlem'?'Manhattan':p.area})):[];
@@ -496,7 +496,7 @@ export default function Home() {
   return <main className={guideStarted ? "guiding" : ""}>
     <header className="header">
       <a href="#top" className="wordmark">ROAMWISE<span>®</span></a>
-      <nav><a href="#results">RUTT</a><a href="#directory">INDEX</a><button className="circle-button" aria-label="Profil">LE</button></nav>
+      <nav><a href="#results">RUTT</a><a href="#directory">INDEX</a></nav>
     </header>
 
     <section className="setup" id="top">
