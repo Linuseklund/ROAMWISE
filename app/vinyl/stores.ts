@@ -11,7 +11,7 @@ export type VinylStore = {
   name: string;
   address: string;
   area: string;
-  borough: "Manhattan" | "Brooklyn";
+  borough: "Manhattan" | "Brooklyn" | "Queens";
   lat: number;
   lon: number;
   stock: Stock[];
@@ -86,6 +86,24 @@ export const vinylStores: VinylStore[] = [
     lat: 40.73326, lon: -73.95504, stock: ["begagnat"], focus: "Osorterat · billiga backar",
     description: "Kaotisk second hand-källare med tusentals osorterade skivor till lågpris. För dig som vill gräva – house-klassiker dyker upp.",
     hours: [h(10.5, 19), null, null, h(10.5, 19), h(10.5, 19), h(10.5, 19), h(10.5, 19)],
+  },
+  {
+    id: "woodward", name: "690 Woodward Garage", address: "690 Woodward Ave (hörnet Palmetto St), Queens, NY 11385", area: "Ridgewood", borough: "Queens",
+    lat: 40.70479, lon: -73.90587, stock: ["begagnat", "nytt"], focus: "House · techno · importer · diggerfynd",
+    description: "Liten butik i ett garage med vintage Klipsch-högtalare. DJ-vänliga priser, elektroniska importer och egna vinylkvällar ute på stan.",
+    hours: [h(12, 20), null, null, h(12, 20), h(12, 20), h(12, 20), h(12, 20)], hoursNote: "Kolla tider innan", link: "https://www.instagram.com/690_woodward_garage/",
+  },
+  {
+    id: "pancakes", name: "Pancakes Records", address: "20-77 Steinway St, Queens, NY 11105", area: "Astoria", borough: "Queens",
+    lat: 40.77476, lon: -73.90352, stock: ["nytt", "begagnat"], focus: "Blandat · DJ-kvällar i butiken",
+    description: "Astorias skivbutik sedan 2023 med ny och begagnad vinyl, lyssningsstation och DJ-set i butiken. Inte renodlat house men värt ett stopp i Queens.",
+    hours: [h(12, 18), h(12, 20), null, h(12, 20), h(12, 20), h(12, 20), h(12, 20)],
+  },
+  {
+    id: "deepcuts", name: "Deep Cuts Record Store", address: "57-03 Catalpa Ave, Queens, NY 11385", area: "Ridgewood", borough: "Queens",
+    lat: 40.70096, lon: -73.90414, stock: ["begagnat", "nytt"], focus: "Blandat · dans och underground",
+    description: "Ridgewoods kvartersbutik för vinyl sedan 2012 – köp, sälj och byt. Brett utbud från jazz och hiphop till experimentellt; ägaren låter dig lyssna innan du köper.",
+    hours: [h(12, 19), null, null, h(12, 19), h(12, 19), h(12, 19), h(12, 19)], hoursNote: "Kolla tider innan",
   },
 ];
 
