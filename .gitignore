@@ -1,0 +1,8 @@
+# Dependencies and build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local runtime state
+.sites-runtime/
+.wrangler/
