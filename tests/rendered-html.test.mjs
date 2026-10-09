@@ -41,3 +41,24 @@ test("renders the Roamwise mobile planning controls", async () => {
   assert.match(html, /<em>Kläder<\/em>/);
   assert.match(html, /aria-haspopup="dialog"/);
 });
+
+test("renders the New York house vinyl guide", async () => {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}-vinyl`);
+  const { default: worker } = await import(workerUrl.href);
+
+  const response = await worker.fetch(
+    new Request("http://localhost/vinyl", { headers: { accept: "text/html" } }),
+    { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
+    { waitUntil() {}, passThroughOnException() {} },
+  );
+
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /House på vinyl — Roamwise New York/);
+  assert.match(html, /A-1 Record Shop/);
+  assert.match(html, /Superior Elevation/);
+  assert.match(html, /SUBWAY FRÅN MIN POSITION/);
+  assert.match(html, /BEGAGNAT/);
+  assert.match(html, /Närmaste station/);
+});

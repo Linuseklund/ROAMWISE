@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMobileDialogs } from "./use-mobile-dialogs";
 import DayControls from './day-controls';
@@ -496,7 +497,7 @@ export default function Home() {
   return <main className={guideStarted ? "guiding" : ""}>
     <header className="header">
       <a href="#top" className="wordmark">ROAMWISE<span>®</span></a>
-      <nav><a href="#results">RUTT</a><a href="#directory">INDEX</a><button className="circle-button" aria-label="Profil">LE</button></nav>
+      <nav><a href="#results">RUTT</a><a href="#directory">INDEX</a><Link href="/vinyl">VINYL NYC</Link><button className="circle-button" aria-label="Profil">LE</button></nav>
     </header>
 
     <section className="setup" id="top">
