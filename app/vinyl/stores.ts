@@ -11,7 +11,7 @@ export type VinylStore = {
   name: string;
   address: string;
   area: string;
-  borough: "Manhattan" | "Brooklyn" | "Queens";
+  borough: "Manhattan" | "Brooklyn" | "Queens" | "Bronx";
   lat: number;
   lon: number;
   stock: Stock[];
@@ -19,6 +19,10 @@ export type VinylStore = {
   description: string;
   hours: WeekHours;
   hoursNote?: string;
+  /** No reliable opening hours found; the UI says so instead of showing open/closed. */
+  hoursUnknown?: boolean;
+  /** Not a house shop but worth a visit, e.g. "Kulturstopp · latin". */
+  culture?: string;
   /** Store's own site or Instagram, when verified. */
   link?: string;
 };
@@ -105,12 +109,19 @@ export const vinylStores: VinylStore[] = [
     description: "Ridgewoods kvartersbutik för vinyl sedan 2012 – köp, sälj och byt. Brett utbud från jazz och hiphop till experimentellt; ägaren låter dig lyssna innan du köper.",
     hours: [h(12, 19), null, null, h(12, 19), h(12, 19), h(12, 19), h(12, 19)], hoursNote: "Kolla tider innan",
   },
+  {
+    id: "amadeo", name: "Casa Amadeo", address: "786 Prospect Ave, Bronx, NY 10455", area: "Longwood", borough: "Bronx",
+    lat: 40.81873, lon: -73.9019, stock: [], culture: "Kulturstopp · latin", focus: "Salsa · bolero · puertoricansk musik",
+    description: "Stadens äldsta latinska skivbutik som drivits utan avbrott, i ett kulturminnesmärkt hus i Longwood. Mest CD och instrument men också vinyl. Inte house – men en bit av Bronx dansmusikhistoria.",
+    hours: [null, null, null, null, null, null, null], hoursUnknown: true, hoursNote: "Ring innan",
+  },
 ];
 
 export const weekdayNames = ["Sön", "Mån", "Tis", "Ons", "Tor", "Fre", "Lör"];
 
 const clock = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 export const hoursLabel = (span: [number, number] | null) => (span ? `${clock(span[0])}–${clock(span[1])}` : "Stängt");
+export const dayHours = (store: VinylStore, day: number) => (store.hoursUnknown ? "Okänt" : hoursLabel(store.hours[day]));
 
 /** Current weekday (0 = Sunday) and minute of day in New York. */
 export function newYorkNow(now = new Date()) {
@@ -122,6 +133,7 @@ export function newYorkNow(now = new Date()) {
 export type OpenStatus = { open: boolean; label: string };
 
 export function openStatus(store: VinylStore, now = newYorkNow()): OpenStatus {
+  if (store.hoursUnknown) return { open: false, label: "Öppettider okända" };
   const today = store.hours[now.day];
   if (today && now.minutes >= today[0] && now.minutes < today[1]) {
     const left = today[1] - now.minutes;
