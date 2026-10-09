@@ -59,6 +59,8 @@ test("renders the New York house vinyl guide", async () => {
   assert.match(html, /A-1 Record Shop/);
   assert.match(html, /Superior Elevation/);
   assert.match(html, /690 Woodward Garage/);
+  assert.match(html, /Casa Amadeo/);
+  assert.match(html, /Öppettider okända/);
   assert.match(html, /RIDGEWOOD(<!-- -->)? · (<!-- -->)?QUEENS/);
   assert.match(html, /SUBWAY FRÅN MIN POSITION/);
   assert.match(html, /BEGAGNAT/);

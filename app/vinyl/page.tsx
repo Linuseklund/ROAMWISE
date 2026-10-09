@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { hoursLabel, newYorkNow, openStatus, vinylStores, weekdayNames, type VinylStore } from "./stores";
+import { dayHours, newYorkNow, openStatus, vinylStores, weekdayNames, type VinylStore } from "./stores";
 import { nearestStations, planSubway, routeColors, transitLinks, walkMinutes, type Journey, type LatLon } from "./subway";
 
 type Filter = "alla" | "nytt" | "begagnat" | "oppet";
@@ -58,8 +58,8 @@ function JourneySteps({ journey }: { journey: Journey }) {
 
 function popupHtml(s: VinylStore, now: { day: number; minutes: number }, journey?: Journey) {
   const status = openStatus(s, now);
-  const rows = [1, 2, 3, 4, 5, 6, 0].map((d) => `<tr${d === now.day ? ' class="today"' : ""}><th>${weekdayNames[d]}</th><td>${hoursLabel(s.hours[d])}</td></tr>`).join("");
-  const stock = s.stock.map((t) => (t === "nytt" ? "Nytt" : "Begagnat")).join(" & ");
+  const rows = [1, 2, 3, 4, 5, 6, 0].map((d) => `<tr${d === now.day ? ' class="today"' : ""}><th>${weekdayNames[d]}</th><td>${dayHours(s, d)}</td></tr>`).join("");
+  const stock = s.culture || s.stock.map((t) => (t === "nytt" ? "Nytt" : "Begagnat")).join(" & ");
   const trip = journey ? ` · ca ${journey.minutes} min ${journey.walkOnly ? "till fots" : "med subway"}` : "";
   return `<div class="vinyl-pop"><div class="vinyl-pop-head"><small>${esc(s.area)} · ${esc(s.borough)}</small><b>${esc(s.name)}</b><em${status.open ? ' class="open"' : ""}>${esc(status.label)}</em></div>`
     + `<div class="vinyl-pop-body"><p class="vinyl-pop-genre">${esc(s.focus)}</p><p class="vinyl-pop-stock">${esc(stock.toUpperCase())}</p><p>${esc(s.description)}</p>`
@@ -218,7 +218,7 @@ export default function VinylGuide() {
                   <span className={`vinyl-status${status.open ? " open" : ""}`}>{status.label}</span>
                 </div>
                 <div className="vinyl-card-body">
-                <div className="vinyl-tags">{s.stock.map((t) => <span key={t}>{t === "nytt" ? "NYTT" : "BEGAGNAT"}</span>)}{s.hoursNote && <span className="soft">{s.hoursNote.toUpperCase()}</span>}</div>
+                <div className="vinyl-tags">{s.culture && <span>{s.culture.toUpperCase()}</span>}{s.stock.map((t) => <span key={t}>{t === "nytt" ? "NYTT" : "BEGAGNAT"}</span>)}{s.hoursNote && <span className="soft">{s.hoursNote.toUpperCase()}</span>}</div>
                 <p className="vinyl-desc">{s.description}</p>
                 <p className="vinyl-address">{s.address}</p>
                 {closest && <p className="vinyl-station">Närmaste station: <b>{closest.name}</b> {closest.routes.map((r) => <Bullet key={r} route={r} />)} · {walkMinutes(closest, s)} min promenad</p>}
@@ -229,7 +229,7 @@ export default function VinylGuide() {
                       <caption>ÖPPETTIDER</caption>
                       <tbody>
                         {[1, 2, 3, 4, 5, 6, 0].map((d) => (
-                          <tr key={d} className={d === now.day ? "today" : ""}><th>{weekdayNames[d]}</th><td>{hoursLabel(s.hours[d])}</td></tr>
+                          <tr key={d} className={d === now.day ? "today" : ""}><th>{weekdayNames[d]}</th><td>{dayHours(s, d)}</td></tr>
                         ))}
                       </tbody>
                     </table>
