@@ -1,3 +1,5 @@
+import type { Gateway } from "./subway";
+
 // House/dance-focused record stores in New York. Hours were checked against the
 // stores' own sites, Instagram and recent listings in October 2026 – they change,
 // so the UI always links to the store for confirmation.
@@ -11,7 +13,7 @@ export type VinylStore = {
   name: string;
   address: string;
   area: string;
-  borough: "Manhattan" | "Brooklyn" | "Queens" | "Bronx";
+  borough: "Manhattan" | "Brooklyn" | "Queens" | "Bronx" | "Staten Island";
   lat: number;
   lon: number;
   stock: Stock[];
@@ -23,9 +25,15 @@ export type VinylStore = {
   hoursUnknown?: boolean;
   /** Not a house shop but worth a visit, e.g. "Kulturstopp · latin". */
   culture?: string;
+  /** Fixed last leg where the subway doesn't go, e.g. the Staten Island Ferry. */
+  gateway?: Gateway;
   /** Store's own site or Instagram, when verified. */
   link?: string;
 };
+
+const whitehall = { name: "Whitehall Terminal (Staten Island Ferry)", routes: [], lat: 40.70096, lon: -74.01306 };
+const stGeorge = { name: "St. George Terminal", routes: [], lat: 40.6442, lon: -74.07285 };
+const forestBarrett = { name: "Forest Av / Barrett Av", routes: [], lat: 40.62558, lon: -74.13612 };
 
 const h = (open: number, close: number): [number, number] => [open * 60, close * 60];
 const daily = (open: number, close: number): WeekHours => Array.from({ length: 7 }, () => h(open, close));
@@ -114,6 +122,20 @@ export const vinylStores: VinylStore[] = [
     lat: 40.81873, lon: -73.9019, stock: [], culture: "Kulturstopp · latin", focus: "Salsa · bolero · puertoricansk musik",
     description: "Stadens äldsta latinska skivbutik som drivits utan avbrott, i ett kulturminnesmärkt hus i Longwood. Mest CD och instrument men också vinyl. Inte house – men en bit av Bronx dansmusikhistoria.",
     hours: [null, null, null, null, null, null, null], hoursUnknown: true, hoursNote: "Ring innan",
+  },
+  {
+    id: "majors", name: "Majors Records & Video", address: "12 Barrett Ave, Staten Island, NY 10302", area: "Westerleigh", borough: "Staten Island",
+    lat: 40.62524, lon: -74.13627, stock: ["begagnat", "nytt"], focus: "Blandat · begagnad vinyl, CD och film",
+    description: "Staten Islands enda riktiga skivbutik, familjeägd sedan 1971. Främst begagnat i alla genrer – inte house-specialiserad, men backarna med 12\"-singlar kan ge fynd. Kombinera med färjan för utsikten.",
+    hours: [null, h(9, 18), h(9, 18), h(9, 18), h(9, 18), h(9, 18), h(8, 18)], hoursNote: "Kolla tider innan",
+    gateway: {
+      ...whitehall,
+      steps: [
+        { kind: "ferry", label: "Staten Island-färjan (gratis)", from: whitehall, to: stGeorge, minutes: 35 },
+        { kind: "bus", label: "S48", from: stGeorge, to: forestBarrett, minutes: 20 },
+        { kind: "walk", to: "Majors Records & Video", minutes: 2 },
+      ],
+    },
   },
 ];
 
