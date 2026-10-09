@@ -41,7 +41,14 @@ export function nearestStations(point: LatLon, count = 3, maxKm = 1.6) {
 export type Step =
   | { kind: "walk"; to: string; minutes: number }
   | { kind: "ride"; routes: string[]; from: Station; to: Station; minutes: number }
-  | { kind: "transfer"; at: Station };
+  | { kind: "transfer"; at: Station }
+  | { kind: "ferry" | "bus"; label: string; from: Station; to: Station; minutes: number };
+
+/**
+ * A fixed final leg for places the subway doesn't reach (Staten Island): get to
+ * `name` by subway, then follow `steps`.
+ */
+export type Gateway = LatLon & { name: string; steps: Step[] };
 
 export type Journey = { minutes: number; steps: Step[]; walkOnly: boolean };
 
@@ -49,7 +56,12 @@ export type Journey = { minutes: number; steps: Step[]; walkOnly: boolean };
  * Suggests a subway journey with at most one transfer. Station-to-station times
  * are estimates; the UI links to a live planner for exact departures.
  */
-export function planSubway(origin: LatLon, destination: LatLon, destinationName: string): Journey {
+export function planSubway(origin: LatLon, destination: LatLon, destinationName: string, gateway?: Gateway): Journey {
+  if (gateway) {
+    const toGateway = planSubway(origin, gateway, gateway.name);
+    const rest = gateway.steps.reduce((sum, step) => sum + ("minutes" in step ? step.minutes : 0), 0);
+    return { minutes: toGateway.minutes + rest, walkOnly: false, steps: [...toGateway.steps, ...gateway.steps] };
+  }
   const walkAll = walkMinutes(origin, destination);
   const walkOnly: Journey = { minutes: walkAll, walkOnly: true, steps: [{ kind: "walk", to: destinationName, minutes: walkAll }] };
   if (walkAll <= 15) return walkOnly;

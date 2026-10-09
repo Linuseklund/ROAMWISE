@@ -50,6 +50,8 @@ function JourneySteps({ journey }: { journey: Journey }) {
           {step.kind === "walk" && <><span className="vinyl-step-icon">⟶</span><span>Gå {step.minutes} min till <b>{step.to}</b></span></>}
           {step.kind === "ride" && <><span className="vinyl-step-icon">{step.routes.map((r) => <Bullet key={r} route={r} />)}</span><span>Åk från <b>{step.from.name}</b> till <b>{step.to.name}</b> · ca {step.minutes} min</span></>}
           {step.kind === "transfer" && <><span className="vinyl-step-icon">⇄</span><span>Byt tåg vid <b>{step.at.name}</b></span></>}
+          {step.kind === "ferry" && <><span className="vinyl-step-icon"><span className="vinyl-pill">FÄRJA</span></span><span>Ta <b>{step.label}</b> från {step.from.name} till <b>{step.to.name}</b> · ca {step.minutes} min inkl. väntan</span></>}
+          {step.kind === "bus" && <><span className="vinyl-step-icon"><span className="vinyl-pill">{step.label}</span></span><span>Ta buss <b>{step.label}</b> från {step.from.name} till <b>{step.to.name}</b> · ca {step.minutes} min</span></>}
         </li>
       ))}
     </ol>
@@ -83,7 +85,7 @@ export default function VinylGuide() {
 
   const journeys = useMemo(() => {
     if (!position) return {} as Record<string, Journey>;
-    return Object.fromEntries(vinylStores.map((s) => [s.id, planSubway(position, s, s.name)]));
+    return Object.fromEntries(vinylStores.map((s) => [s.id, planSubway(position, s, s.name, s.gateway)]));
   }, [position]);
 
   const stores = useMemo(() => {
@@ -139,7 +141,7 @@ export default function VinylGuide() {
     const journey = store && journeys[store.id];
     if (store && position && journey) {
       const pts: [number, number][] = [[position.lat, position.lon]];
-      journey.steps.forEach((step) => { if (step.kind === "ride") pts.push([step.from.lat, step.from.lon], [step.to.lat, step.to.lon]); });
+      journey.steps.forEach((step) => { if (step.kind === "ride" || step.kind === "ferry" || step.kind === "bus") pts.push([step.from.lat, step.from.lon], [step.to.lat, step.to.lon]); });
       pts.push([store.lat, store.lon]);
       layer.addLayer(L.polyline(pts, { color: "#0b0b0b", weight: 4, dashArray: journey.walkOnly ? "2 8" : undefined, opacity: 0.85 }));
       map.fitBounds(pts, { padding: [50, 50], maxZoom: 15, animate: false });
@@ -221,7 +223,8 @@ export default function VinylGuide() {
                 <div className="vinyl-tags">{s.culture && <span>{s.culture.toUpperCase()}</span>}{s.stock.map((t) => <span key={t}>{t === "nytt" ? "NYTT" : "BEGAGNAT"}</span>)}{s.hoursNote && <span className="soft">{s.hoursNote.toUpperCase()}</span>}</div>
                 <p className="vinyl-desc">{s.description}</p>
                 <p className="vinyl-address">{s.address}</p>
-                {closest && <p className="vinyl-station">Närmaste station: <b>{closest.name}</b> {closest.routes.map((r) => <Bullet key={r} route={r} />)} · {walkMinutes(closest, s)} min promenad</p>}
+                {s.gateway && <p className="vinyl-station">Ingen subway hit: ta <b>Staten Island-färjan</b> från Whitehall Terminal {["1", "R", "W"].map((r) => <Bullet key={r} route={r} />)} och sedan buss <b>S48</b>.</p>}
+                {!s.gateway && closest && <p className="vinyl-station">Närmaste station: <b>{closest.name}</b> {closest.routes.map((r) => <Bullet key={r} route={r} />)} · {walkMinutes(closest, s)} min promenad</p>}
 
                 {active && (
                   <div className="vinyl-details" onClick={(e) => e.stopPropagation()}>
@@ -237,7 +240,7 @@ export default function VinylGuide() {
                       <p className="vinyl-route-title">TA DIG DIT</p>
                       {journey ? (
                         <>
-                          <p className="vinyl-route-total"><b>ca {journey.minutes} min</b> {journey.walkOnly ? "till fots" : "med subway"}</p>
+                          <p className="vinyl-route-total"><b>ca {journey.minutes} min</b> {journey.walkOnly ? "till fots" : s.gateway ? "med subway, färja och buss" : "med subway"}</p>
                           <JourneySteps journey={journey} />
                         </>
                       ) : (
