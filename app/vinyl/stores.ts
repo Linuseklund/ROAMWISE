@@ -7,6 +7,8 @@ import type { Gateway } from "./subway";
 export type Stock = "nytt" | "begagnat";
 /** Opening hours per weekday, index 0 = Sunday. [open, close] in minutes after midnight, null = closed. */
 export type WeekHours = ([number, number] | null)[];
+/** Anything with opening hours: shared by the vinyl and sneaker guides. */
+export type Timed = { hours: WeekHours; hoursUnknown?: boolean };
 
 export type VinylStore = {
   id: string;
@@ -143,7 +145,7 @@ export const weekdayNames = ["Sön", "Mån", "Tis", "Ons", "Tor", "Fre", "Lör"]
 
 const clock = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 export const hoursLabel = (span: [number, number] | null) => (span ? `${clock(span[0])}–${clock(span[1])}` : "Stängt");
-export const dayHours = (store: VinylStore, day: number) => (store.hoursUnknown ? "Okänt" : hoursLabel(store.hours[day]));
+export const dayHours = (store: Timed, day: number) => (store.hoursUnknown ? "Okänt" : hoursLabel(store.hours[day]));
 
 /** Current weekday (0 = Sunday) and minute of day in New York. */
 export function newYorkNow(now = new Date()) {
@@ -154,7 +156,7 @@ export function newYorkNow(now = new Date()) {
 
 export type OpenStatus = { open: boolean; label: string };
 
-export function openStatus(store: VinylStore, now = newYorkNow()): OpenStatus {
+export function openStatus(store: Timed, now = newYorkNow()): OpenStatus {
   if (store.hoursUnknown) return { open: false, label: "Öppettider okända" };
   const today = store.hours[now.day];
   if (today && now.minutes >= today[0] && now.minutes < today[1]) {
