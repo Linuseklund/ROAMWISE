@@ -108,4 +108,6 @@ test("renders the combined vinyl and sneaker guide", async () => {
   assert.match(html, /Flight Club/);
   assert.match(html, /VINYL · HOUSE/);
   assert.match(html, /SNEAKERS &amp; STREETWEAR/);
+  assert.match(html, /<link rel="manifest" href="\/nyc\.webmanifest"\/>/);
+  assert.match(html, /<link rel="apple-touch-icon" href="\/nyc-apple-touch-icon\.png"/);
 });
