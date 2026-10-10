@@ -89,3 +89,23 @@ test("renders the New York sneaker guide", async () => {
   assert.match(html, /Mr\. Throwback/);
   assert.match(html, /Närmaste station/);
 });
+
+test("renders the combined vinyl and sneaker guide", async () => {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}-nyc`);
+  const { default: worker } = await import(workerUrl.href);
+
+  const response = await worker.fetch(
+    new Request("http://localhost/nyc", { headers: { accept: "text/html" } }),
+    { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
+    { waitUntil() {}, passThroughOnException() {} },
+  );
+
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /Vinyl &amp; sneakers på linjen — Roamwise New York/);
+  assert.match(html, /A-1 Record Shop/);
+  assert.match(html, /Flight Club/);
+  assert.match(html, /VINYL · HOUSE/);
+  assert.match(html, /SNEAKERS &amp; STREETWEAR/);
+});
