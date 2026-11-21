@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#05070d">
+<title>Luftrummor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&display=swap">
+<style>
+  :root {
+    --bg: #05070d;
+    --fg: #e8f6ff;
+    --muted: #8aa3b8;
+    --accent: #3df2ff;
+    --hot: #ff3dac;
+    --panel: rgba(8, 14, 24, 0.72);
+    --font: "Chakra Petch", ui-sans-serif, system-ui, sans-serif;
+    color-scheme: dark;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); overflow: hidden; overscroll-behavior: none; touch-action: none; -webkit-user-select: none; user-select: none; }
+  #stage { position: fixed; inset: 0; }
+  video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  video.mirror { transform: scaleX(-1); }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #bar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 5;
+    display: flex; gap: 8px; align-items: center; justify-content: space-between;
+    padding: calc(env(safe-area-inset-top, 0px) + 8px) max(12px, env(safe-area-inset-right, 0px)) 8px max(12px, env(safe-area-inset-left, 0px));
+    pointer-events: none;
+  }
+  #bar .title { font-weight: 700; letter-spacing: 0.14em; font-size: 13px; text-transform: uppercase; color: var(--accent); text-shadow: 0 0 10px rgba(61,242,255,.6); }
+  #bar .btns { display: flex; gap: 6px; pointer-events: auto; }
+  #bar button {
+    font: 600 12px var(--font); letter-spacing: .06em; color: var(--fg);
+    background: var(--panel); border: 1px solid rgba(61,242,255,.35); border-radius: 999px;
+    padding: 7px 12px; cursor: pointer;
+  }
+  #bar button:focus-visible, #start button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #start {
+    position: fixed; inset: 0; z-index: 10; display: grid; place-items: center;
+    background: radial-gradient(120% 80% at 50% 30%, #0f2333 0%, var(--bg) 70%);
+    padding: 24px max(20px, env(safe-area-inset-left, 0px));
+    overflow-y: auto; touch-action: pan-y;
+  }
+  #start .card { max-width: 420px; text-align: center; display: grid; gap: 16px; }
+  #start h1 { margin: 0; font-size: clamp(34px, 10vw, 54px); letter-spacing: .06em; line-height: 1; text-transform: uppercase; color: var(--accent); text-shadow: 0 0 24px rgba(61,242,255,.55); }
+  #start p { margin: 0; color: var(--muted); line-height: 1.5; font-size: 15px; }
+  #start ul { text-align: left; margin: 0; padding-left: 20px; color: var(--fg); line-height: 1.6; font-size: 14px; }
+  #start button {
+    font: 700 17px var(--font); letter-spacing: .1em; text-transform: uppercase; color: #001318;
+    background: var(--accent); border: 0; border-radius: 14px; padding: 16px 20px; cursor: pointer;
+    box-shadow: 0 0 30px rgba(61,242,255,.45);
+  }
+  #status { min-height: 1.4em; color: var(--hot); font-size: 14px; }
+  #probe { position: fixed; visibility: hidden; padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="video" class="mirror" playsinline muted autoplay></video>
+  <canvas id="cv"></canvas>
+</div>
+<div id="bar" hidden>
+  <span class="title">Luftrummor</span>
+  <span class="btns">
+    <button id="flip" type="button">Byt kamera</button>
+    <button id="skel" type="button">Händer: på</button>
+  </span>
+</div>
+<div id="start">
+  <div class="card">
+    <h1>Luft&shy;rummor</h1>
+    <p>Ställ mobilen stadigt en bit framför dig så att kameran ser dina händer.</p>
+    <ul>
+      <li><b>Slå</b> på padsen med pekfingret, snabbt nedåt. Hårdare slag ger högre ljud.</li>
+      <li><b>Nyp</b> (tumme + pekfinger) på en ratt eller ett reglage och dra upp/ner för att ändra.</li>
+      <li>Rattarna styr den pad du senast slog på.</li>
+    </ul>
+    <button id="go" type="button">Starta kamera</button>
+    <div id="status" role="status"></div>
+  </div>
+</div>
+<div id="probe"></div>
+
+<script type="module">
+import { FilesetResolver, HandLandmarker } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+const video = document.getElementById("video");
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const statusEl = document.getElementById("status");
+const probe = document.getElementById("probe");
+
+// ---------- state ----------
+const PADS = [
+  { name: "HAT",      color: "#3df2ff" },
+  { name: "CLAP",     color: "#ffd23d" },
+  { name: "OPEN HAT", color: "#7dffb0" },
+  { name: "BELL",     color: "#ff9a3d" },
+  { name: "TOM HI",   color: "#b48cff" },
+  { name: "SNARE",    color: "#ff3dac" },
+  { name: "KICK",     color: "#ff4d4d" },
+  { name: "TOM LO",   color: "#6c8cff" },
+];
+const defaults = () => ({
+  master: 0.8, room: 0.2, selected: 6,
+  pads: PADS.map(() => ({ tune: 0.5, decay: 0.5, tone: 0.85, level: 0.8 })),
+});
+let S = defaults();
+try { const saved = JSON.parse(localStorage.getItem("airdrums")); if (saved && saved.pads?.length === PADS.length) S = { ...S, ...saved }; } catch {}
+let saveT = 0;
+function save() { clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem("airdrums", JSON.stringify(S)); } catch {} }, 400); }
+
+let facing = "user";
+let showSkel = true;
+let mirror = true;
+let W = 0, H = 0, DPR = 1;
+let L = null; // layout
+const flashes = PADS.map(() => 0);
+const ripples = [];
+
+// ---------- audio ----------
+let ac, masterGain, dryBus, revSend, noiseBuf;
+function initAudio() {
+  ac = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
+  const comp = ac.createDynamicsCompressor();
+  comp.threshold.value = -10; comp.knee.value = 6; comp.ratio.value = 4; comp.attack.value = 0.002; comp.release.value = 0.15;
+  masterGain = ac.createGain(); masterGain.gain.value = S.master;
+  masterGain.connect(comp); comp.connect(ac.destination);
+  dryBus = ac.createGain(); dryBus.connect(masterGain);
+  const conv = ac.createConvolver(); conv.buffer = impulse(2.2, 3);
+  revSend = ac.createGain(); revSend.gain.value = S.room * 0.9;
+  revSend.connect(conv); conv.connect(masterGain);
+  noiseBuf = ac.createBuffer(1, ac.sampleRate * 1.5, ac.sampleRate);
+  const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+}
+function impulse(sec, decay) {
+  const len = ac.sampleRate * sec, b = ac.createBuffer(2, len, ac.sampleRate);
+  for (let c = 0; c < 2; c++) { const d = b.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay); }
+  return b;
+}
+function noise(t, dur) { const s = ac.createBufferSource(); s.buffer = noiseBuf; s.start(t); s.stop(t + dur + 0.05); return s; }
+function osc(type, t, dur) { const o = ac.createOscillator(); o.type = type; o.start(t); o.stop(t + dur + 0.05); return o; }
+function vca(t, peak, dec) {
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(Math.max(peak, 0.0002), t + 0.002);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dec);
+  return g;
+}
+function filt(type, f, q = 0.7) { const b = ac.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; return b; }
+
+function play(i, vel) {
+  if (!ac) return;
+  if (ac.state !== "running") ac.resume();
+  const P = S.pads[i], t = ac.currentTime + 0.003;
+  const p = Math.pow(2, (P.tune - 0.5) * 2);          // 0.5x – 2x
+  const d = 0.3 + P.decay * P.decay * 2.4 + P.decay * 0.2; // ~0.3x – 2.9x
+  const cutoff = 250 * Math.pow(72, P.tone);          // 250 Hz – 18 kHz
+  const lp = filt("lowpass", cutoff, 0.8);
+  const out = ac.createGain(); out.gain.value = P.level * P.level * 1.2 * (0.25 + 0.75 * vel);
+  lp.connect(out); out.connect(dryBus); out.connect(revSend);
+  const name = PADS[i].name;
+
+  if (name === "KICK") {
+    const dur = 0.45 * d, o = osc("sine", t, dur);
+    o.frequency.setValueAtTime(165 * p, t); o.frequency.exponentialRampToValueAtTime(42 * p, t + 0.14);
+    const g = vca(t, 1.0, dur); o.connect(g); g.connect(lp);
+    const n = noise(t, 0.02), ng = vca(t, 0.35, 0.015), hp = filt("highpass", 2500); n.connect(hp); hp.connect(ng); ng.connect(lp);
+  } else if (name === "SNARE") {
+    const n = noise(t, 0.3 * d), hp = filt("highpass", 1100), g = vca(t, 0.8, 0.2 * d); n.connect(hp); hp.connect(g); g.connect(lp);
+    const o = osc("triangle", t, 0.15 * d); o.frequency.setValueAtTime(200 * p, t); o.frequency.exponentialRampToValueAtTime(150 * p, t + 0.08);
+    const og = vca(t, 0.6, 0.11 * d); o.connect(og); og.connect(lp);
+  } else if (name === "HAT" || name === "OPEN HAT") {
+    const dur = (name === "HAT" ? 0.055 : 0.42) * d;
+    const n = noise(t, dur), hp = filt("highpass", 7000 * Math.min(p, 1.6)), bp = filt("bandpass", 10500 * Math.min(p, 1.6), 0.6);
+    const g = vca(t, 0.55, dur); n.connect(hp); hp.connect(bp); bp.connect(g); g.connect(lp);
+  } else if (name === "CLAP") {
+    const n = noise(t, 0.4 * d), bp = filt("bandpass", 1150 * p, 1.4), g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    [0, 0.011, 0.022].forEach(o => { g.gain.setValueAtTime(0.9, t + o); g.gain.exponentialRampToValueAtTime(0.12, t + o + 0.009); });
+    g.gain.setValueAtTime(0.75, t + 0.031); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.031 + 0.22 * d);
+    n.connect(bp); bp.connect(g); g.connect(lp);
+  } else if (name === "TOM HI" || name === "TOM LO") {
+    const hi = name === "TOM HI", f0 = (hi ? 210 : 115) * p, dur = (hi ? 0.35 : 0.5) * d;
+    const o = osc("sine", t, dur); o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * 0.62, t + dur * 0.8);
+    const g = vca(t, 0.95, dur); o.connect(g); g.connect(lp);
+    const n = noise(t, 0.03), ng = vca(t, 0.2, 0.025), bp = filt("bandpass", f0 * 6, 1); n.connect(bp); bp.connect(ng); ng.connect(lp);
+  } else if (name === "BELL") {
+    const dur = 0.4 * d, bp = filt("bandpass", 820 * p, 2.5), g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.7, t + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.2, t + 0.04); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    [545, 815].forEach(f => { const o = osc("square", t, dur); o.frequency.value = f * p; o.connect(bp); });
+    bp.connect(g); g.connect(lp);
+  }
+}
+
+// ---------- layout ----------
+function readSafe() {
+  const cs = getComputedStyle(probe);
+  return { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0, b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 };
+}
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const sa = readSafe();
+  const gx = Math.max(14, sa.l), gr = Math.max(14, sa.r);
+  const top = sa.t + 56, bottom = H - Math.max(16, sa.b + 10);
+  const landscape = W > H * 1.15;
+  const innerW = W - gx - gr;
+
+  // controls band
+  const ctrlH = landscape ? Math.min(H * 0.34, 210) : Math.min(H * 0.27, 230);
+  const faderW = Math.max(40, Math.min(58, innerW * 0.12));
+  const ctrl = { x: gx, y: top, w: innerW, h: ctrlH };
+  const faders = {
+    master: { x: ctrl.x, y: ctrl.y + 22, w: faderW, h: ctrlH - 44 },
+    level:  { x: ctrl.x + ctrl.w - faderW, y: ctrl.y + 22, w: faderW, h: ctrlH - 44 },
+  };
+  const kx0 = ctrl.x + faderW + 12, kx1 = ctrl.x + ctrl.w - faderW - 12, kw = (kx1 - kx0) / 4;
+  const kr = Math.max(18, Math.min(kw * 0.36, (ctrlH - 70) * 0.42, 46));
+  const ky = ctrl.y + 30 + (ctrlH - 30) / 2;
+  const knobKeys = ["tune", "decay", "tone", "room"];
+  const knobs = knobKeys.map((k, i) => ({ key: k, cx: kx0 + kw * (i + 0.5), cy: ky, r: kr }));
+
+  // pads band
+  const padTop = landscape ? Math.max(top + ctrlH + 24, H * 0.5) : Math.max(top + ctrlH + 30, H * 0.56);
+  const cols = 4, rows = 2, gap = Math.max(8, innerW * 0.025);
+  let pw = (innerW - gap * (cols - 1)) / cols;
+  let ph = (bottom - padTop - gap) / rows;
+  if (landscape) pw = Math.min(pw, ph * 1.6);
+  const totalW = pw * cols + gap * (cols - 1), px0 = gx + (innerW - totalW) / 2;
+  const pads = PADS.map((p, i) => ({ i, x: px0 + (i % cols) * (pw + gap), y: padTop + Math.floor(i / cols) * (ph + gap), w: pw, h: ph }));
+  L = { ctrl, faders, knobs, pads };
+}
+
+// ---------- controls ----------
+const KNOB_LABEL = { tune: "PITCH", decay: "DECAY", tone: "TONE", room: "ROOM" };
+function getVal(id) {
+  if (id === "master") return S.master;
+  if (id === "room") return S.room;
+  return S.pads[S.selected][id];
+}
+function setVal(id, v) {
+  v = Math.max(0, Math.min(1, v));
+  if (id === "master") { S.master = v; if (masterGain) masterGain.gain.setTargetAtTime(v, ac.currentTime, 0.02); }
+  else if (id === "room") { S.room = v; if (revSend) revSend.gain.setTargetAtTime(v * 0.9, ac.currentTime, 0.02); }
+  else S.pads[S.selected][id] = v;
+  save();
+}
+function inRect(p, r, pad = 0) { return p.x >= r.x - pad && p.x <= r.x + r.w + pad && p.y >= r.y - pad && p.y <= r.y + r.h + pad; }
+function controlAt(p) {
+  for (const k of ["master", "level"]) if (inRect(p, L.faders[k], 18)) return { id: k, type: "fader", rect: L.faders[k] };
+  for (const k of L.knobs) if (Math.hypot(p.x - k.cx, p.y - k.cy) < k.r + 22) return { id: k.key, type: "knob", knob: k };
+  return null;
+}
+function padAt(p) { for (const r of L.pads) if (inRect(p, r)) return r.i; return -1; }
+
+// grabs keyed by source (hand label or pointer id)
+const grabs = new Map();
+function grabStart(src, p) {
+  const c = controlAt(p);
+  if (c) { grabs.set(src, { ...c, sy: p.y, sv: getVal(c.id) }); if (c.type === "fader") grabMove(src, p); return true; }
+  const pad = padAt(p);
+  if (pad >= 0) { S.selected = pad; save(); }
+  return false;
+}
+function grabMove(src, p) {
+  const g = grabs.get(src); if (!g) return;
+  if (g.type === "fader") setVal(g.id, 1 - (p.y - g.rect.y) / g.rect.h);
+  else setVal(g.id, g.sv + (g.sy - p.y) / Math.max(140, H * 0.22));
+}
+function grabEnd(src) { grabs.delete(src); }
+
+function hit(i, vel, p) {
+  vel = Math.max(0.15, Math.min(1, vel));
+  play(i, vel);
+  S.selected = i;
+  flashes[i] = 0.4 + vel * 0.6;
+  const r = L.pads[i];
+  ripples.push({ x: p ? p.x : r.x + r.w / 2, y: p ? p.y : r.y + r.h / 2, t: performance.now(), c: PADS[i].color, v: vel });
+  if (navigator.vibrate) { try { navigator.vibrate(8); } catch {} }
+}
+
+// ---------- touch / mouse fallback ----------
+cv.addEventListener("pointerdown", e => {
+  const p = { x: e.clientX, y: e.clientY };
+  if (!grabStart("ptr" + e.pointerId, p)) {
+    const pad = padAt(p);
+    if (pad >= 0) hit(pad, 0.85, p);
+  }
+  cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener("pointermove", e => grabMove("ptr" + e.pointerId, { x: e.clientX, y: e.clientY }));
+const endPtr = e => grabEnd("ptr" + e.pointerId);
+cv.addEventListener("pointerup", endPtr); cv.addEventListener("pointercancel", endPtr);
+
+// ---------- hand tracking ----------
+let landmarker = null, lastVideoTime = -1;
+let hands = []; // for drawing
+const handState = {}; // keyed by handedness label
+
+function mapPt(lm) {
+  const vw = video.videoWidth || 1, vh = video.videoHeight || 1;
+  const sc = Math.max(W / vw, H / vh), dx = (W - vw * sc) / 2, dy = (H - vh * sc) / 2;
+  let x = lm.x * vw * sc + dx;
+  if (mirror) x = W - x;
+  return { x, y: lm.y * vh * sc + dy };
+}
+
+function processHands(res, now) {
+  hands = [];
+  const seen = new Set();
+  const lms = res.landmarks || [];
+  lms.forEach((lm, idx) => {
+    let key = res.handedness?.[idx]?.[0]?.categoryName || "H" + idx;
+    if (seen.has(key)) key = key + "2";
+    seen.add(key);
+    const pts = lm.map(mapPt);
+    const st = handState[key] || (handState[key] = { prev: null, prevT: 0, vy: 0, inPad: -1, cool: 0, pinch: false, smooth: null });
+
+    // pinch detection (scale-invariant)
+    const vw = video.videoWidth || 1, vh = video.videoHeight || 1;
+    const dd = (a, b) => Math.hypot((a.x - b.x) * vw, (a.y - b.y) * vh);
+    const size = dd(lm[0], lm[9]) || 1;
+    const ratio = dd(lm[4], lm[8]) / size;
+    const pinchPt = { x: (pts[4].x + pts[8].x) / 2, y: (pts[4].y + pts[8].y) / 2 };
+    st.smooth = st.smooth ? { x: st.smooth.x * 0.5 + pinchPt.x * 0.5, y: st.smooth.y * 0.5 + pinchPt.y * 0.5 } : pinchPt;
+    if (!st.pinch && ratio < 0.3) { st.pinch = true; grabStart(key, st.smooth); }
+    else if (st.pinch && ratio > 0.45) { st.pinch = false; grabEnd(key); }
+    if (st.pinch) grabMove(key, st.smooth);
+
+    // strike detection on index fingertip
+    const tip = pts[8];
+    let vx = 0, vy = 0;
+    if (st.prev && now - st.prevT < 200) { const dt = (now - st.prevT) / 1000; vx = (tip.x - st.prev.x) / dt / H; vy = (tip.y - st.prev.y) / dt / H; }
+    const speed = Math.hypot(vx, vy);
+    const pad = padAt(tip);
+    if (!st.pinch && !grabs.has(key) && pad >= 0 && now > st.cool) {
+      const entered = pad !== st.inPad && speed > 0.9 && vy > -0.2;
+      const bounced = pad === st.inPad && st.vy > 1.3 && vy < st.vy * 0.25;
+      if (entered || bounced) {
+        const v = entered ? speed : st.vy;
+        hit(pad, (v - 0.6) / 3.2 + 0.25, tip);
+        st.cool = now + 130;
+      }
+    }
+    st.inPad = pad; st.vy = vy; st.prev = tip; st.prevT = now;
+    hands.push({ key, pts, pinch: st.pinch, pinchPt: st.smooth, grab: grabs.get(key) });
+  });
+  // release hands that vanished
+  for (const k of Object.keys(handState)) if (!seen.has(k)) {
+    if (handState[k].pinch) grabEnd(k);
+    delete handState[k];
+  }
+}
+
+// ---------- drawing ----------
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h); }
+function hexA(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
+const FONT = '"Chakra Petch", ui-sans-serif, system-ui, sans-serif';
+
+function draw(now) {
+  ctx.clearRect(0, 0, W, H);
+  // light vignette so controls read over any background
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, "rgba(3,6,12,0.55)"); g.addColorStop(0.35, "rgba(3,6,12,0.0)");
+  g.addColorStop(0.6, "rgba(3,6,12,0.0)"); g.addColorStop(1, "rgba(3,6,12,0.45)");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  const sel = S.selected, selColor = PADS[sel].color;
+  const { ctrl } = L;
+  // panel header
+  ctx.font = `700 12px ${FONT}`; ctx.textBaseline = "middle"; ctx.textAlign = "center";
+  ctx.fillStyle = hexA(selColor, 0.95);
+  ctx.fillText(`◆ ${PADS[sel].name}`, ctrl.x + ctrl.w / 2, ctrl.y + 8);
+
+  // faders
+  for (const k of ["master", "level"]) {
+    const r = L.faders[k], v = getVal(k), col = k === "master" ? "#e8f6ff" : selColor;
+    const active = [...grabs.values()].some(gg => gg.id === k);
+    rr(r.x, r.y, r.w, r.h, 10); ctx.fillStyle = "rgba(6,12,22,0.55)"; ctx.fill();
+    ctx.lineWidth = active ? 2.5 : 1.2; ctx.strokeStyle = hexA(col, active ? 0.95 : 0.45); ctx.stroke();
+    const fh = r.h * v; rr(r.x + 4, r.y + r.h - fh, r.w - 8, Math.max(0, fh), 7); ctx.fillStyle = hexA(col, active ? 0.45 : 0.28); ctx.fill();
+    const hy = r.y + r.h - fh; rr(r.x - 3, hy - 5, r.w + 6, 10, 5); ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = active ? 18 : 8; ctx.fill(); ctx.shadowBlur = 0;
+    ctx.fillStyle = "#e8f6ff"; ctx.font = `700 10px ${FONT}`;
+    ctx.fillText(k === "master" ? "MASTER" : "LEVEL", r.x + r.w / 2, r.y - 10);
+    ctx.fillStyle = hexA("#e8f6ff", 0.75); ctx.font = `500 11px ${FONT}`;
+    ctx.fillText(Math.round(v * 100), r.x + r.w / 2, r.y + r.h + 11);
+  }
+  // knobs
+  const A0 = Math.PI * 0.75, SWEEP = Math.PI * 1.5;
+  for (const k of L.knobs) {
+    const v = getVal(k.key), col = k.key === "room" ? "#e8f6ff" : selColor;
+    const active = [...grabs.values()].some(gg => gg.id === k.key);
+    ctx.beginPath(); ctx.arc(k.cx, k.cy, k.r, 0, Math.PI * 2); ctx.fillStyle = "rgba(6,12,22,0.6)"; ctx.fill();
+    ctx.lineWidth = 1.2; ctx.strokeStyle = hexA(col, 0.35); ctx.stroke();
+    ctx.lineCap = "round";
+    ctx.beginPath(); ctx.arc(k.cx, k.cy, k.r - 5, A0, A0 + SWEEP); ctx.lineWidth = 4; ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.stroke();
+    ctx.beginPath(); ctx.arc(k.cx, k.cy, k.r - 5, A0, A0 + SWEEP * v); ctx.lineWidth = active ? 6 : 4; ctx.strokeStyle = col; ctx.shadowColor = col; ctx.shadowBlur = active ? 16 : 6; ctx.stroke(); ctx.shadowBlur = 0;
+    const a = A0 + SWEEP * v;
+    ctx.beginPath(); ctx.moveTo(k.cx + Math.cos(a) * k.r * 0.2, k.cy + Math.sin(a) * k.r * 0.2); ctx.lineTo(k.cx + Math.cos(a) * (k.r - 12), k.cy + Math.sin(a) * (k.r - 12));
+    ctx.lineWidth = 3; ctx.strokeStyle = "#e8f6ff"; ctx.stroke(); ctx.lineCap = "butt";
+    ctx.fillStyle = "#e8f6ff"; ctx.font = `700 10px ${FONT}`; ctx.fillText(KNOB_LABEL[k.key], k.cx, k.cy - k.r - 10);
+    ctx.fillStyle = hexA("#e8f6ff", 0.75); ctx.font = `500 11px ${FONT}`; ctx.fillText(knobText(k.key, v), k.cx, k.cy + k.r + 11);
+  }
+
+  // pads
+  for (const r of L.pads) {
+    const c = PADS[r.i].color, f = flashes[r.i], isSel = r.i === sel;
+    rr(r.x, r.y, r.w, r.h, 14);
+    ctx.fillStyle = hexA(c, 0.12 + f * 0.55); ctx.fill();
+    ctx.lineWidth = isSel ? 3 : 1.5; ctx.strokeStyle = hexA(c, isSel ? 1 : 0.6);
+    ctx.shadowColor = c; ctx.shadowBlur = 6 + f * 30; ctx.stroke(); ctx.shadowBlur = 0;
+    // corner ticks
+    ctx.strokeStyle = hexA(c, 0.9); ctx.lineWidth = 2;
+    const t = Math.min(14, r.w * 0.15);
+    ctx.beginPath(); ctx.moveTo(r.x + 6, r.y + 6 + t); ctx.lineTo(r.x + 6, r.y + 6); ctx.lineTo(r.x + 6 + t, r.y + 6); ctx.stroke();
+    ctx.fillStyle = "#ffffff"; ctx.font = `700 ${Math.max(10, Math.min(15, r.w * 0.14))}px ${FONT}`;
+    ctx.shadowColor = "rgba(0,0,0,.7)"; ctx.shadowBlur = 4;
+    ctx.fillText(PADS[r.i].name, r.x + r.w / 2, r.y + r.h / 2); ctx.shadowBlur = 0;
+    // level bar
+    const lv = S.pads[r.i].level; rr(r.x + 10, r.y + r.h - 10, (r.w - 20) * lv, 3, 2); ctx.fillStyle = hexA(c, 0.8); ctx.fill();
+    flashes[r.i] = Math.max(0, f - 0.06);
+  }
+
+  // ripples
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const rp = ripples[i], age = (now - rp.t) / 450;
+    if (age >= 1) { ripples.splice(i, 1); continue; }
+    ctx.beginPath(); ctx.arc(rp.x, rp.y, 10 + age * (50 + rp.v * 70), 0, Math.PI * 2);
+    ctx.lineWidth = 3 * (1 - age); ctx.strokeStyle = hexA(rp.c, 1 - age); ctx.stroke();
+  }
+
+  // hands
+  for (const h of hands) {
+    if (showSkel) {
+      ctx.strokeStyle = "rgba(232,246,255,0.45)"; ctx.lineWidth = 2;
+      for (const [a, b] of BONES) { ctx.beginPath(); ctx.moveTo(h.pts[a].x, h.pts[a].y); ctx.lineTo(h.pts[b].x, h.pts[b].y); ctx.stroke(); }
+      ctx.fillStyle = "rgba(232,246,255,0.75)";
+      for (const p of h.pts) { ctx.beginPath(); ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2); ctx.fill(); }
+    }
+    const tip = h.pts[8];
+    ctx.beginPath(); ctx.arc(tip.x, tip.y, 9, 0, Math.PI * 2);
+    ctx.fillStyle = h.pinch ? "#ff3dac" : "#3df2ff"; ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 14; ctx.fill(); ctx.shadowBlur = 0;
+    if (h.pinch) {
+      ctx.beginPath(); ctx.arc(h.pinchPt.x, h.pinchPt.y, h.grab ? 20 : 14, 0, Math.PI * 2);
+      ctx.lineWidth = 3; ctx.strokeStyle = h.grab ? "#ff3dac" : "rgba(255,61,172,0.6)"; ctx.stroke();
+    }
+  }
+
+  if (!hands.length && landmarker) {
+    ctx.fillStyle = "rgba(232,246,255,0.6)"; ctx.font = `500 13px ${FONT}`;
+    ctx.fillText("Visa händerna för kameran", W / 2, (L.ctrl.y + L.ctrl.h + L.pads[0].y) / 2);
+  }
+}
+function knobText(k, v) {
+  if (k === "tune") { const st = Math.round((v - 0.5) * 24); return (st > 0 ? "+" : "") + st + " st"; }
+  if (k === "tone") { const f = 250 * Math.pow(72, v); return f >= 1000 ? (f / 1000).toFixed(1) + " kHz" : Math.round(f) + " Hz"; }
+  return Math.round(v * 100) + "%";
+}
+const BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+
+// ---------- loop ----------
+function loop() {
+  requestAnimationFrame(loop);
+  const now = performance.now();
+  if (landmarker && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    try { processHands(landmarker.detectForVideo(video, now), now); } catch (e) { console.warn(e); }
+  }
+  draw(now);
+}
+
+// ---------- startup ----------
+let stream = null;
+async function startCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } },
+  });
+  video.srcObject = stream;
+  await video.play();
+  mirror = facing === "user";
+  video.classList.toggle("mirror", mirror);
+}
+async function initTracker() {
+  const fileset = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+  const opts = (delegate) => ({
+    baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task", delegate },
+    runningMode: "VIDEO", numHands: 2,
+    minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5,
+  });
+  try { landmarker = await HandLandmarker.createFromOptions(fileset, opts("GPU")); }
+  catch { landmarker = await HandLandmarker.createFromOptions(fileset, opts("CPU")); }
+}
+
+document.getElementById("go").addEventListener("click", async () => {
+  const btn = document.getElementById("go");
+  btn.disabled = true;
+  initAudio(); ac.resume();
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    statusEl.textContent = "Kameran kräver att sidan öppnas via https.";
+    btn.disabled = false; return;
+  }
+  try {
+    statusEl.textContent = "Startar kamera…";
+    await startCamera();
+    statusEl.textContent = "Laddar handspårning…";
+    await initTracker();
+    document.getElementById("start").hidden = true;
+    document.getElementById("bar").hidden = false;
+    try { await navigator.wakeLock?.request("screen"); } catch {}
+  } catch (e) {
+    console.error(e);
+    statusEl.textContent = e?.name === "NotAllowedError"
+      ? "Kameran nekades. Tillåt kamera för sidan i webbläsarens inställningar och försök igen."
+      : "Något gick fel: " + (e?.message || e);
+    btn.disabled = false;
+  }
+});
+document.getElementById("flip").addEventListener("click", async () => {
+  facing = facing === "user" ? "environment" : "user";
+  try { await startCamera(); } catch { facing = facing === "user" ? "environment" : "user"; }
+});
+document.getElementById("skel").addEventListener("click", e => {
+  showSkel = !showSkel; e.currentTarget.textContent = "Händer: " + (showSkel ? "på" : "av");
+});
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState === "visible") { try { await navigator.wakeLock?.request("screen"); } catch {} if (ac) ac.resume(); }
+});
+
+addEventListener("resize", resize);
+resize();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
