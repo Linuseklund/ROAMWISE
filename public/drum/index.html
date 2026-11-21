@@ -90,7 +90,7 @@
       <li><b>Slå</b> på padsen med pekfingret, snabbt nedåt. Hårdare slag ger högre ljud.</li>
       <li><b>Nyp</b> (tumme + pekfinger) på en ratt eller ett reglage och dra upp/ner för att ändra.</li>
       <li>Rattarna styr den pad du senast slog på.</li>
-      <li><b>Sequencer:</b> tryck <b>● REC</b> och spela. Varje ljud spelas in på sin egen rad, 32 steg. Tryck i rutnätet för att lägga till eller ta bort slag. <b>RENSA</b> tömmer vald kanal, dubbeltryck tömmer allt. Dra i <b>BPM</b> för tempot.</li>
+      <li><b>Sequencer:</b> tryck <b>● REC</b> och spela. Varje ljud spelas in på sin egen rad, 32 steg. Tryck i rutnätet för att lägga till eller ta bort slag. <b>RENSA</b> tömmer vald kanal, dubbeltryck tömmer allt. Dra i <b>BPM</b>, <b>SWING</b> och <b>HUMANIZE</b> för tempo, groove och mänsklig känsla.</li>
       <li>Hörs inget? Skruva upp volymen och slå av tyst läge.</li>
     </ul>
     <button id="go" type="button">Starta kamera</button>
@@ -124,11 +124,13 @@ const emptyPattern = () => PADS.map(() => Array(STEPS).fill(0));
 const defaults = () => ({
   master: 0.8, room: 0.2, selected: 6,
   pads: PADS.map(() => ({ tune: 0.5, decay: 0.5, tone: 0.85, level: 0.8 })),
-  bpm: 100, click: true, pattern: emptyPattern(), mute: PADS.map(() => false),
+  bpm: 100, swing: 0, human: 0, click: true, pattern: emptyPattern(), mute: PADS.map(() => false),
 });
 let S = defaults();
 try { const saved = JSON.parse(localStorage.getItem("airdrums")); if (saved && saved.pads?.length === PADS.length) S = { ...S, ...saved }; } catch {}
 if (!Array.isArray(S.pattern) || S.pattern.length !== PADS.length || S.pattern.some(r => !Array.isArray(r) || r.length !== STEPS)) S.pattern = emptyPattern();
+if (typeof S.swing !== "number") S.swing = 0;
+if (typeof S.human !== "number") S.human = 0;
 if (!Array.isArray(S.mute) || S.mute.length !== PADS.length) S.mute = PADS.map(() => false);
 let saveT = 0;
 function save() { clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem("airdrums", JSON.stringify(S)); } catch {} }, 400); }
@@ -230,15 +232,22 @@ function scheduleStep(s, t) {
   const sd = stepDur();
   for (let i = 0; i < PADS.length; i++) {
     const v = S.pattern[i][s];
+    if (!v || S.mute[i]) continue;
+    // swing pushes every off-beat 16th later; humanize nudges timing (±25 ms) and velocity (±30 %)
+    const jitter = (Math.random() * 2 - 1) * 0.025 * S.human;
+    const tt = Math.max(ac.currentTime + 0.002, t + swingOffset(s) + jitter);
+    const vv = Math.max(0.1, Math.min(1, v * (1 + (Math.random() * 2 - 1) * 0.3 * S.human)));
     // skip a step that was just played live (it was recorded a moment ago)
-    if (v && !S.mute[i] && Math.abs(t - lastLive[i]) > sd * 0.6) {
-      play(i, v, t);
-      const delay = Math.max(0, (t - ac.currentTime) * 1000);
-      setTimeout(() => { flashes[i] = Math.max(flashes[i], 0.25 + v * 0.45); }, delay);
+    if (Math.abs(tt - lastLive[i]) > sd * 0.6) {
+      play(i, vv, tt);
+      const delay = Math.max(0, (tt - ac.currentTime) * 1000);
+      setTimeout(() => { flashes[i] = Math.max(flashes[i], 0.25 + vv * 0.45); }, delay);
     }
   }
   if (SEQ.rec && S.click && s % 4 === 0) metronome(t, s % 16 === 0);
 }
+// 0 % = straight, 100 % = 75 % swing (off-beat 16th pushed half a step)
+function swingOffset(s) { return s % 2 === 1 ? S.swing * 0.5 * stepDur() : 0; }
 function metronome(t, accent) {
   const o = ac.createOscillator(), g = ac.createGain();
   o.frequency.value = accent ? 1760 : 1180;
@@ -250,7 +259,11 @@ function metronome(t, accent) {
 function recordHit(i, vel) {
   const sd = stepDur();
   const pos = SEQ.step - (SEQ.nextTime - ac.currentTime) / sd;
-  const s = ((Math.round(pos) % STEPS) + STEPS) % STEPS;
+  // pick the nearest step, measured against where that step actually sounds (swing included)
+  const f = Math.floor(pos), wrap = n => ((n % STEPS) + STEPS) % STEPS;
+  const d0 = Math.abs(pos - (f + swingOffset(wrap(f)) / sd));
+  const d1 = Math.abs(pos - (f + 1 + swingOffset(wrap(f + 1)) / sd));
+  const s = wrap(d0 <= d1 ? f : f + 1);
   S.pattern[i][s] = Math.max(0.15, Math.round(vel * 100) / 100);
   save();
 }
@@ -331,24 +344,26 @@ function resize() {
   const knobs = knobKeys.map((k, i) => ({ key: k, cx: kx0 + kw * (i + 0.5), cy: ky, r: kr }));
 
   // sequencer (transport row + 8x32 step grid) and pads
-  let transport, grid, padArea;
-  const trH = landscape ? 30 : 36;
+  let transport, grid, padArea, sliderRow;
+  const trH = landscape ? 30 : 36, slH = landscape ? 24 : 30;
   if (!landscape) {
     const tY = top + ctrlH + 14;
     transport = { x: gx, y: tY, w: innerW, h: trH };
+    sliderRow = { x: gx, y: tY + trH + 6, w: innerW, h: slH };
     const rowH = Math.max(9, Math.min(15, H * 0.015));
-    grid = { x: gx, y: tY + trH + 8, w: innerW, h: rowH * 8, rowH };
+    grid = { x: gx, y: sliderRow.y + slH + 8, w: innerW, h: rowH * 8, rowH };
     padArea = { x: gx, y: grid.y + grid.h + 14, w: innerW, h: bottom - (grid.y + grid.h + 14) };
   } else {
     const below = top + ctrlH + 12, leftW = innerW * 0.5;
     padArea = { x: gx, y: below, w: leftW - 8, h: bottom - below };
     transport = { x: gx + leftW + 8, y: below, w: innerW - leftW - 8, h: trH };
-    const gy = below + trH + 6, rowH = (bottom - gy) / 8;
+    sliderRow = { x: transport.x, y: below + trH + 5, w: transport.w, h: slH };
+    const gy = sliderRow.y + slH + 6, rowH = (bottom - gy) / 8;
     grid = { x: transport.x, y: gy, w: transport.w, h: rowH * 8, rowH };
   }
   grid.labelW = Math.min(40, grid.w * 0.1);
   grid.cellW = (grid.w - grid.labelW) / STEPS;
-  const BTN = ["play", "rec", "click", "bpm", "mute", "clear"];
+  const BTN = ["play", "rec", "click", "mute", "clear"];
   const bgap = 6, bw = (transport.w - bgap * (BTN.length - 1)) / BTN.length;
   const buttons = BTN.map((id, i) => ({ id, x: transport.x + i * (bw + bgap), y: transport.y, w: bw, h: transport.h }));
 
@@ -358,7 +373,9 @@ function resize() {
   pw = Math.min(pw, ph * 1.6);
   const totalW = pw * cols + gap * (cols - 1), px0 = padArea.x + (padArea.w - totalW) / 2;
   const pads = PADS.map((p, i) => ({ i, x: px0 + (i % cols) * (pw + gap), y: padArea.y + Math.floor(i / cols) * (ph + gap), w: pw, h: ph }));
-  L = { ctrl, faders, knobs, pads, grid, buttons };
+  const SL = ["bpm", "swing", "human"], sgap = 8, sw = (sliderRow.w - sgap * (SL.length - 1)) / SL.length;
+  const sliders = SL.map((id, i) => ({ id, x: sliderRow.x + i * (sw + sgap), y: sliderRow.y, w: sw, h: sliderRow.h }));
+  L = { ctrl, faders, knobs, pads, grid, buttons, sliders };
 }
 
 // ---------- controls ----------
@@ -385,6 +402,12 @@ function padAt(p) { for (const r of L.pads) if (inRect(p, r)) return r.i; return
 
 // grabs keyed by source (hand label or pointer id)
 const grabs = new Map();
+const SLIDER = {
+  bpm:   { label: "BPM",      get: () => (S.bpm - 50) / 150, set: v => { S.bpm = Math.round(50 + v * 150); }, text: () => S.bpm + "" },
+  swing: { label: "SWING",    get: () => S.swing, set: v => { S.swing = v; }, text: () => Math.round(50 + S.swing * 25) + "%" },
+  human: { label: "HUMANIZE", get: () => S.human, set: v => { S.human = v; }, text: () => Math.round(S.human * 100) + "%" },
+};
+function sliderAt(p) { for (const sl of L.sliders) if (inRect(p, sl, 5)) return sl; return null; }
 function buttonAt(p) { for (const b of L.buttons) if (inRect(p, b, 4)) return b; return null; }
 function cellAt(p) {
   const g = L.grid;
@@ -409,12 +432,10 @@ function pressButton(id) {
   save();
 }
 function grabStart(src, p) {
+  const sl = sliderAt(p);
+  if (sl) { grabs.set(src, { id: sl.id, type: "hslider", rect: sl }); grabMove(src, p); return true; }
   const b = buttonAt(p);
-  if (b) {
-    if (b.id === "bpm") grabs.set(src, { id: "bpm", type: "bpm", sx: p.x, sy: p.y, sv: S.bpm });
-    else { pressButton(b.id); grabs.set(src, { id: b.id, type: "button" }); }
-    return true;
-  }
+  if (b) { pressButton(b.id); grabs.set(src, { id: b.id, type: "button" }); return true; }
   const cell = cellAt(p);
   if (cell) {
     S.selected = PADS.length > cell.row ? cell.row : S.selected;
@@ -435,7 +456,10 @@ function grabStart(src, p) {
 function grabMove(src, p) {
   const g = grabs.get(src); if (!g) return;
   if (g.type === "button") return;
-  if (g.type === "bpm") { S.bpm = Math.max(50, Math.min(200, Math.round(g.sv + (g.sy - p.y) / 3 + (p.x - g.sx) / 3))); save(); return; }
+  if (g.type === "hslider") {
+    const r = g.rect, v = Math.max(0, Math.min(1, (p.x - r.x - 6) / (r.w - 12)));
+    SLIDER[g.id].set(v); save(); return;
+  }
   if (g.type === "paint") {
     const c = cellAt(p);
     if (c && c.col >= 0 && c.row === g.row && S.pattern[c.row][c.col] !== g.value) { S.pattern[c.row][c.col] = g.value; save(); }
@@ -647,7 +671,6 @@ function drawSequencer(now) {
     if (b.id === "play") { label = SEQ.playing ? "■ STOP" : "▶ PLAY"; on = SEQ.playing; col = "#7dffb0"; }
     if (b.id === "rec") { label = "● REC"; on = SEQ.rec; col = "#ff4d4d"; }
     if (b.id === "click") { label = "KLICK"; on = S.click; col = "#ffd23d"; }
-    if (b.id === "bpm") { label = S.bpm + ""; sub = "BPM"; col = "#e8f6ff"; }
     if (b.id === "mute") { label = "MUTE"; on = S.mute[sel]; col = PADS[sel].color; }
     if (b.id === "clear") { label = "RENSA"; col = PADS[sel].color; }
     rr(b.x, b.y, b.w, b.h, 9);
@@ -660,6 +683,25 @@ function drawSequencer(now) {
       ctx.font = `700 ${fs + 1}px ${FONT}`; ctx.fillText(label, b.x + b.w / 2, b.y + b.h * 0.4);
       ctx.font = `500 ${Math.max(8, fs - 3)}px ${FONT}`; ctx.fillStyle = hexA("#e8f6ff", 0.7); ctx.fillText(sub, b.x + b.w / 2, b.y + b.h * 0.75);
     } else { ctx.font = `700 ${fs}px ${FONT}`; ctx.fillText(label, b.x + b.w / 2, b.y + b.h / 2); }
+  }
+  // swing / humanize / tempo sliders
+  for (const sl of L.sliders) {
+    const def = SLIDER[sl.id], v = def.get(), active = [...grabs.values()].some(gg => gg.id === sl.id);
+    const col = sl.id === "bpm" ? "#e8f6ff" : sl.id === "swing" ? "#b48cff" : "#7dffb0";
+    rr(sl.x, sl.y, sl.w, sl.h, sl.h / 2); ctx.fillStyle = "rgba(6,12,22,0.62)"; ctx.fill();
+    ctx.lineWidth = active ? 2 : 1.2; ctx.strokeStyle = hexA(col, active ? 1 : 0.5); ctx.stroke();
+    const fw = 6 + (sl.w - 12) * v;
+    rr(sl.x + 2, sl.y + 2, Math.max(sl.h - 4, fw - 2), sl.h - 4, (sl.h - 4) / 2); ctx.fillStyle = hexA(col, active ? 0.5 : 0.3); ctx.fill();
+    const hx = Math.min(sl.x + sl.w - 5, Math.max(sl.x + 5, sl.x + fw));
+    rr(hx - 2, sl.y + 3, 4, sl.h - 6, 2);
+    ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = active ? 14 : 6; ctx.fill(); ctx.shadowBlur = 0;
+    const fs = Math.max(8, Math.min(11, sl.h * 0.38));
+    const label = sl.id === "human" && sl.w < 150 ? "HUMAN" : def.label;
+    ctx.font = `700 ${fs}px ${FONT}`; ctx.fillStyle = "#ffffff"; ctx.textAlign = "left";
+    ctx.shadowColor = "rgba(0,0,0,0.85)"; ctx.shadowBlur = 4;
+    ctx.fillText(label, sl.x + sl.h * 0.4, sl.y + sl.h / 2);
+    ctx.textAlign = "right"; ctx.fillText(def.text(), sl.x + sl.w - sl.h * 0.4, sl.y + sl.h / 2);
+    ctx.shadowBlur = 0; ctx.textAlign = "center";
   }
   // step grid
   const g = L.grid;
