@@ -77,9 +77,10 @@
 <div id="bar" hidden>
   <span class="title">Luft trumman</span>
   <span class="btns">
+    <button id="mode" type="button">✏️ Rita</button>
     <button id="snd" type="button">Ljud: på</button>
-    <button id="flip" type="button">Byt kamera</button>
-    <button id="skel" type="button">Händer: på</button>
+    <button id="flip" type="button">Kamera</button>
+    <button id="skel" type="button">Hand: på</button>
   </span>
 </div>
 <div id="start">
@@ -91,6 +92,7 @@
       <li><b>Nyp</b> (tumme + pekfinger) på en ratt eller ett reglage och dra upp/ner för att ändra.</li>
       <li>Rattarna styr den pad du senast slog på.</li>
       <li><b>Sequencer:</b> tryck <b>● REC</b> och spela. Varje ljud spelas in på sin egen rad, 32 steg. Tryck i rutnätet för att lägga till eller ta bort slag. <b>RENSA</b> tömmer vald kanal, dubbeltryck tömmer allt. Dra i <b>BPM</b>, <b>SWING</b> och <b>HUMANIZE</b> för tempo, groove och mänsklig känsla.</li>
+      <li><b>✏️ Rita-läge:</b> nyp och rita streck i luften över rutnätet. Raderna är ljud, kolumnerna tid, och den vita linjen spelar det du ritat. Börjar du rita på en tänd ruta suddar du i stället. Vänd mobilen på bredden för större rutor.</li>
       <li>Hörs inget? Skruva upp volymen och slå av tyst läge.</li>
     </ul>
     <button id="go" type="button">Starta kamera</button>
@@ -124,12 +126,14 @@ const emptyPattern = () => PADS.map(() => Array(STEPS).fill(0));
 const defaults = () => ({
   master: 0.8, room: 0.2, selected: 6,
   pads: PADS.map(() => ({ tune: 0.5, decay: 0.5, tone: 0.85, level: 0.8 })),
-  bpm: 100, swing: 0, human: 0, click: true, pattern: emptyPattern(), mute: PADS.map(() => false),
+  bpm: 100, swing: 0, human: 0, click: true, mode: "pads", strokes: [], pattern: emptyPattern(), mute: PADS.map(() => false),
 });
 let S = defaults();
 try { const saved = JSON.parse(localStorage.getItem("airdrums")); if (saved && saved.pads?.length === PADS.length) S = { ...S, ...saved }; } catch {}
 if (!Array.isArray(S.pattern) || S.pattern.length !== PADS.length || S.pattern.some(r => !Array.isArray(r) || r.length !== STEPS)) S.pattern = emptyPattern();
 if (typeof S.swing !== "number") S.swing = 0;
+if (S.mode !== "draw") S.mode = "pads";
+if (!Array.isArray(S.strokes)) S.strokes = [];
 if (typeof S.human !== "number") S.human = 0;
 if (!Array.isArray(S.mute) || S.mute.length !== PADS.length) S.mute = PADS.map(() => false);
 let saveT = 0;
@@ -328,6 +332,7 @@ function resize() {
   const top = sa.t + 56, bottom = H - Math.max(16, sa.b + 10);
   const landscape = W > H * 1.15;
   const innerW = W - gx - gr;
+  if (S.mode === "draw") { layoutDraw(gx, top, bottom, innerW, landscape); return; }
 
   // controls band
   const ctrlH = landscape ? Math.min(H * 0.3, 170) : Math.min(H * 0.24, 210);
@@ -378,6 +383,33 @@ function resize() {
   L = { ctrl, faders, knobs, pads, grid, buttons, sliders };
 }
 
+// Draw mode: one big sound-by-time grid over the camera, controls in a strip at the bottom.
+function layoutDraw(gx, top, bottom, innerW, landscape) {
+  const bgap = 6, sgap = 8;
+  let btnRow, slRow, stripTop;
+  if (landscape) {
+    const h = 32; stripTop = bottom - h;
+    const bw = innerW * 0.42;
+    btnRow = { x: gx, y: stripTop, w: bw, h };
+    slRow = { x: gx + bw + 10, y: stripTop + 2, w: innerW - bw - 10, h: h - 4 };
+  } else {
+    slRow = { x: gx, y: bottom - 30, w: innerW, h: 30 };
+    btnRow = { x: gx, y: slRow.y - 6 - 36, w: innerW, h: 36 };
+    stripTop = btnRow.y;
+  }
+  const BTN = ["play", "undo", "clearall"], bw = (btnRow.w - bgap * (BTN.length - 1)) / BTN.length;
+  const buttons = BTN.map((id, i) => ({ id, x: btnRow.x + i * (bw + bgap), y: btnRow.y, w: bw, h: btnRow.h }));
+  const SL = ["bpm", "swing", "human"], sw = (slRow.w - sgap * (SL.length - 1)) / SL.length;
+  const sliders = SL.map((id, i) => ({ id, x: slRow.x + i * (sw + sgap), y: slRow.y, w: sw, h: slRow.h }));
+  const gy = top + 4, gh = stripTop - 12 - gy;
+  const grid = { x: gx, y: gy, w: innerW, h: gh, rowH: gh / 8 };
+  grid.labelW = Math.max(34, Math.min(58, innerW * 0.09));
+  grid.cellW = (grid.w - grid.labelW) / STEPS;
+  L = { draw: true, grid, buttons, sliders, pads: [], knobs: [], faders: null };
+}
+// Rows in draw mode run high to low like a piano roll: cymbals on top, kick at the bottom.
+const ORDER = [0, 2, 3, 4, 7, 1, 5, 6];
+
 // ---------- controls ----------
 const KNOB_LABEL = { tune: "PITCH", decay: "DECAY", tone: "TONE", room: "ROOM" };
 function getVal(id) {
@@ -394,6 +426,7 @@ function setVal(id, v) {
 }
 function inRect(p, r, pad = 0) { return p.x >= r.x - pad && p.x <= r.x + r.w + pad && p.y >= r.y - pad && p.y <= r.y + r.h + pad; }
 function controlAt(p) {
+  if (!L.faders) return null;
   for (const k of ["master", "level"]) if (inRect(p, L.faders[k], 18)) return { id: k, type: "fader", rect: L.faders[k] };
   for (const k of L.knobs) if (Math.hypot(p.x - k.cx, p.y - k.cy) < k.r + 22) return { id: k.key, type: "knob", knob: k };
   return null;
@@ -412,10 +445,58 @@ function buttonAt(p) { for (const b of L.buttons) if (inRect(p, b, 4)) return b;
 function cellAt(p) {
   const g = L.grid;
   if (!inRect(p, g, 3)) return null;
-  const row = Math.max(0, Math.min(7, Math.floor((p.y - g.y) / g.rowH)));
+  const dr = Math.max(0, Math.min(7, Math.floor((p.y - g.y) / g.rowH)));
+  const row = L.draw ? ORDER[dr] : dr;
   const col = Math.floor((p.x - g.x - g.labelW) / g.cellW);
-  return { row, col: col < 0 ? -1 : Math.min(STEPS - 1, col) };
+  return { row, dr, col: col < 0 ? -1 : Math.min(STEPS - 1, col) };
 }
+// Strokes are stored normalized to the draw grid: [nx (0..1 over 32 steps), ny (0..1 over 8 rows), seq index]
+const undoStack = [];
+function pushUndo() {
+  undoStack.push(JSON.stringify({ pattern: S.pattern, strokes: S.strokes }));
+  if (undoStack.length > 30) undoStack.shift();
+}
+function undo() {
+  const u = undoStack.pop(); if (!u) return;
+  const d = JSON.parse(u); S.pattern = d.pattern; S.strokes = d.strokes; save();
+}
+const ptRow = pt => ORDER[Math.max(0, Math.min(7, Math.floor(pt[1] * 8)))];
+const ptCol = pt => Math.max(0, Math.min(STEPS - 1, Math.floor(pt[0] * STEPS)));
+function erasePoints(pred) {
+  S.strokes = S.strokes.map(st => ({ ...st, pts: st.pts.filter(pt => !pred(pt)) })).filter(st => st.pts.length > 1);
+}
+const eraseCellPoints = (r, c) => erasePoints(pt => ptRow(pt) === r && ptCol(pt) === c);
+let lastPreview = 0;
+function drawAt(g, p) {
+  const G = L.grid, x0 = G.x + G.labelW, gw = G.cellW * STEPS;
+  const last = g.lastP;
+  if (last && Math.hypot(p.x - last.x, p.y - last.y) < 3) return;
+  // sample along the segment so quick strokes don't skip cells
+  const stepPx = Math.max(2, Math.min(G.cellW, G.rowH) / 3);
+  const n = last ? Math.max(1, Math.ceil(Math.hypot(p.x - last.x, p.y - last.y) / stepPx)) : 1;
+  for (let k = 1; k <= n; k++) {
+    const q = last ? { x: last.x + (p.x - last.x) * k / n, y: last.y + (p.y - last.y) * k / n } : p;
+    const inside = q.x >= x0 && q.x <= x0 + gw && q.y >= G.y && q.y <= G.y + G.h;
+    if (g.stroke) g.stroke.n++;
+    if (!inside) continue;
+    const pt = [(q.x - x0) / gw, (q.y - G.y) / G.h];
+    const r = ptRow(pt), c = ptCol(pt);
+    if (g.erase) {
+      if (S.pattern[r][c]) S.pattern[r][c] = 0;
+      eraseCellPoints(r, c);
+    } else {
+      g.stroke.pts.push([+pt[0].toFixed(4), +pt[1].toFixed(4), g.stroke.n]);
+      if (!S.pattern[r][c]) {
+        S.pattern[r][c] = 0.85;
+        const now = performance.now();
+        if (now - lastPreview > 70) { play(r, 0.55); lastPreview = now; }
+      }
+    }
+  }
+  g.lastP = p;
+  save();
+}
+
 let lastClear = 0;
 function pressButton(id) {
   const sel = S.selected;
@@ -425,10 +506,13 @@ function pressButton(id) {
   else if (id === "mute") S.mute[sel] = !S.mute[sel];
   else if (id === "clear") {
     const now = performance.now();
-    if (now - lastClear < 700) S.pattern = emptyPattern(); // double tap: clear everything
-    else S.pattern[sel].fill(0);
+    pushUndo();
+    if (now - lastClear < 700) { S.pattern = emptyPattern(); S.strokes = []; } // double tap: clear everything
+    else { S.pattern[sel].fill(0); erasePoints(pt => ptRow(pt) === sel); }
     lastClear = now;
   }
+  else if (id === "clearall") { pushUndo(); S.pattern = emptyPattern(); S.strokes = []; }
+  else if (id === "undo") undo();
   save();
 }
 function grabStart(src, p) {
@@ -437,11 +521,23 @@ function grabStart(src, p) {
   const b = buttonAt(p);
   if (b) { pressButton(b.id); grabs.set(src, { id: b.id, type: "button" }); return true; }
   const cell = cellAt(p);
+  if (cell && L.draw) {
+    if (cell.col < 0) return true;
+    if (!SEQ.playing && ac) seqStart();
+    pushUndo();
+    const erase = S.pattern[cell.row][cell.col] > 0;
+    const g = { id: "grid", type: "draw", erase, stroke: null, lastP: null };
+    if (!erase) { g.stroke = { pts: [], n: 0 }; S.strokes.push(g.stroke); }
+    grabs.set(src, g);
+    drawAt(g, p);
+    return true;
+  }
   if (cell) {
     S.selected = PADS.length > cell.row ? cell.row : S.selected;
     if (cell.col >= 0) {
       const v = S.pattern[cell.row][cell.col] ? 0 : 0.8;
       S.pattern[cell.row][cell.col] = v;
+      if (!v) eraseCellPoints(cell.row, cell.col);
       grabs.set(src, { id: "grid", type: "paint", row: cell.row, value: v });
     } else grabs.set(src, { id: "grid", type: "button" });
     save();
@@ -462,13 +558,22 @@ function grabMove(src, p) {
   }
   if (g.type === "paint") {
     const c = cellAt(p);
-    if (c && c.col >= 0 && c.row === g.row && S.pattern[c.row][c.col] !== g.value) { S.pattern[c.row][c.col] = g.value; save(); }
+    if (c && c.col >= 0 && c.row === g.row && S.pattern[c.row][c.col] !== g.value) {
+      S.pattern[c.row][c.col] = g.value;
+      if (!g.value) eraseCellPoints(c.row, c.col);
+      save();
+    }
     return;
   }
+  if (g.type === "draw") { drawAt(g, p); return; }
   if (g.type === "fader") setVal(g.id, 1 - (p.y - g.rect.y) / g.rect.h);
   else setVal(g.id, g.sv + (g.sy - p.y) / Math.max(140, H * 0.22));
 }
-function grabEnd(src) { grabs.delete(src); }
+function grabEnd(src) {
+  const g = grabs.get(src);
+  if (g && g.type === "draw" && g.stroke && g.stroke.pts.length < 2) S.strokes = S.strokes.filter(st => st !== g.stroke);
+  grabs.delete(src);
+}
 
 function hit(i, vel, p) {
   vel = Math.max(0.15, Math.min(1, vel));
@@ -562,11 +667,13 @@ const FONT = '"Chakra Petch", ui-sans-serif, system-ui, sans-serif';
 
 function draw(now) {
   ctx.clearRect(0, 0, W, H);
+  ctx.textBaseline = "middle"; ctx.textAlign = "center";
   // light vignette so controls read over any background
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, "rgba(3,6,12,0.55)"); g.addColorStop(0.35, "rgba(3,6,12,0.0)");
   g.addColorStop(0.6, "rgba(3,6,12,0.0)"); g.addColorStop(1, "rgba(3,6,12,0.45)");
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  if (L.draw) { drawCanvasMode(now); drawOverlay(now); return; }
 
   const sel = S.selected, selColor = PADS[sel].color;
   const { ctrl } = L;
@@ -626,6 +733,9 @@ function draw(now) {
     flashes[r.i] = Math.max(0, f - 0.06);
   }
 
+  drawOverlay(now);
+}
+function drawOverlay(now) {
   // ripples
   for (let i = ripples.length - 1; i >= 0; i--) {
     const rp = ripples[i], age = (now - rp.t) / 450;
@@ -653,17 +763,32 @@ function draw(now) {
 
   if (!hands.length && landmarker) {
     ctx.fillStyle = "rgba(232,246,255,0.6)"; ctx.font = `500 13px ${FONT}`;
-    ctx.fillText("Visa händerna för kameran", W / 2, (L.ctrl.y + L.ctrl.h + L.buttons[0].y) / 2);
+    const hy = L.draw ? L.grid.y + L.grid.h / 2 : (L.ctrl.y + L.ctrl.h + L.buttons[0].y) / 2;
+    ctx.fillText(L.draw ? "Visa handen och nyp för att rita" : "Visa händerna för kameran", W / 2, hy);
   }
 }
 const SHORT = ["HAT", "CLP", "OHH", "BEL", "THI", "SNR", "KCK", "TLO"];
-function drawSequencer(now) {
-  // advance playhead to the step that is sounding right now
+// Advance the playhead to the step that is sounding now. Returns {step, frac, changed}.
+function advancePlayhead() {
+  let changed = false, frac = 0;
   if (SEQ.playing && ac) {
     const t = ac.currentTime;
     while (SEQ.queue.length > 1 && SEQ.queue[1].t <= t) SEQ.queue.shift();
-    if (SEQ.queue.length && SEQ.queue[0].t <= t) SEQ.playhead = SEQ.queue[0].s;
+    if (SEQ.queue.length && SEQ.queue[0].t <= t) {
+      const s = SEQ.queue[0].s;
+      if (s !== SEQ.playhead) changed = true;
+      SEQ.playhead = s;
+      frac = Math.min(1, (t - SEQ.queue[0].t) / stepDur());
+    }
   }
+  return { step: SEQ.playhead, frac, changed };
+}
+function drawSequencer(now) {
+  advancePlayhead();
+  drawTransport(now);
+  drawStepGrid();
+}
+function drawTransport(now) {
   const sel = S.selected, pulse = 0.55 + 0.45 * Math.sin(now / 160);
   // transport buttons
   for (const b of L.buttons) {
@@ -673,6 +798,8 @@ function drawSequencer(now) {
     if (b.id === "click") { label = "KLICK"; on = S.click; col = "#ffd23d"; }
     if (b.id === "mute") { label = "MUTE"; on = S.mute[sel]; col = PADS[sel].color; }
     if (b.id === "clear") { label = "RENSA"; col = PADS[sel].color; }
+    if (b.id === "undo") { label = "↶ ÅNGRA"; col = "#e8f6ff"; }
+    if (b.id === "clearall") { label = "RENSA ALLT"; col = "#ff3dac"; }
     rr(b.x, b.y, b.w, b.h, 9);
     const a = on ? (b.id === "rec" ? 0.35 + 0.4 * pulse : 0.45) : 0.12;
     ctx.fillStyle = on ? hexA(col, a) : "rgba(6,12,22,0.62)"; ctx.fill();
@@ -703,7 +830,9 @@ function drawSequencer(now) {
     ctx.textAlign = "right"; ctx.fillText(def.text(), sl.x + sl.w - sl.h * 0.4, sl.y + sl.h / 2);
     ctx.shadowBlur = 0; ctx.textAlign = "center";
   }
-  // step grid
+}
+function drawStepGrid() {
+  const sel = S.selected;
   const g = L.grid;
   rr(g.x - 4, g.y - 4, g.w + 8, g.h + 8, 8); ctx.fillStyle = "rgba(4,8,16,0.55)"; ctx.fill();
   const x0 = g.x + g.labelW;
@@ -728,6 +857,90 @@ function drawSequencer(now) {
   }
   // bar line between the two bars (step 16)
   ctx.fillStyle = "rgba(232,246,255,0.45)"; ctx.fillRect(x0 + 16 * g.cellW - 0.5, g.y - 2, 1, g.h + 4);
+}
+// Draw mode: full-screen piano-roll style grid with neon strokes and a sweeping playhead.
+function drawCanvasMode(now) {
+  const ph = advancePlayhead();
+  const G = L.grid, x0 = G.x + G.labelW, gw = G.cellW * STEPS;
+  // sparkle on every note the playhead reaches
+  if (ph.changed && ph.step >= 0) {
+    for (let dr = 0; dr < 8; dr++) {
+      const r = ORDER[dr], v = S.pattern[r][ph.step];
+      if (v && !S.mute[r]) ripples.push({ x: x0 + (ph.step + 0.5) * G.cellW, y: G.y + (dr + 0.5) * G.rowH, t: now, c: PADS[r].color, v: v * 0.6 });
+    }
+  }
+  // lines
+  ctx.lineWidth = 1;
+  for (let dr = 0; dr <= 8; dr++) {
+    const y = Math.round(G.y + dr * G.rowH) + 0.5;
+    ctx.strokeStyle = "rgba(232,246,255,0.22)"; ctx.beginPath(); ctx.moveTo(G.x, y); ctx.lineTo(x0 + gw, y); ctx.stroke();
+  }
+  for (let s = 0; s <= STEPS; s++) {
+    const x = Math.round(x0 + s * G.cellW) + 0.5;
+    ctx.strokeStyle = s % 16 === 0 ? "rgba(232,246,255,0.45)" : s % 4 === 0 ? "rgba(232,246,255,0.2)" : "rgba(232,246,255,0.07)";
+    ctx.beginPath(); ctx.moveTo(x, G.y); ctx.lineTo(x, G.y + G.h); ctx.stroke();
+  }
+  // row labels and active cells
+  const fs = Math.max(9, Math.min(13, G.rowH * 0.28));
+  for (let dr = 0; dr < 8; dr++) {
+    const r = ORDER[dr], c = PADS[r].color, y = G.y + dr * G.rowH, muted = S.mute[r];
+    ctx.font = `700 ${fs}px ${FONT}`; ctx.textAlign = "left";
+    ctx.fillStyle = muted ? "rgba(232,246,255,0.35)" : c;
+    ctx.shadowColor = "rgba(0,0,0,0.8)"; ctx.shadowBlur = 4;
+    ctx.fillText(PADS[r].name, G.x, y + G.rowH / 2); ctx.shadowBlur = 0;
+    for (let st = 0; st < STEPS; st++) {
+      const v = S.pattern[r][st]; if (!v) continue;
+      const hot = st === ph.step;
+      ctx.fillStyle = hexA(c, hot ? 0.55 : 0.16);
+      ctx.fillRect(x0 + st * G.cellW + 1, y + 1, G.cellW - 2, G.rowH - 2);
+    }
+  }
+  ctx.textAlign = "center";
+  drawStrokes(ph, x0, gw);
+  // playhead
+  if (ph.step >= 0) {
+    const x = x0 + (ph.step + ph.frac) * G.cellW;
+    ctx.fillStyle = "rgba(255,255,255,0.08)"; ctx.fillRect(x - G.cellW, G.y, G.cellW, G.h);
+    ctx.fillStyle = "#ffffff"; ctx.shadowColor = "#ffffff"; ctx.shadowBlur = 18;
+    ctx.fillRect(x - 1.5, G.y - 6, 3, G.h + 12); ctx.shadowBlur = 0;
+  }
+  drawTransport(now);
+}
+function drawStrokes(ph, x0, gw) {
+  const G = L.grid, byColor = new Map(), hot = new Path2D();
+  const hx = ph.step >= 0 ? x0 + (ph.step + ph.frac) * G.cellW : -1e9;
+  for (const st of S.strokes) {
+    const pts = st.pts;
+    for (let k = 1; k < pts.length; k++) {
+      if (pts[k][2] - pts[k - 1][2] > 2) continue; // gap left by erasing or leaving the grid
+      const ax = x0 + pts[k - 1][0] * gw, ay = G.y + pts[k - 1][1] * G.h, bx = x0 + pts[k][0] * gw, by = G.y + pts[k][1] * G.h;
+      const col = PADS[ptRow([(pts[k][0] + pts[k - 1][0]) / 2, (pts[k][1] + pts[k - 1][1]) / 2])].color;
+      let path = byColor.get(col); if (!path) { path = new Path2D(); byColor.set(col, path); }
+      path.moveTo(ax, ay); path.lineTo(bx, by);
+      if (Math.abs((ax + bx) / 2 - hx) < G.cellW * 1.2) { hot.moveTo(ax, ay); hot.lineTo(bx, by); }
+    }
+  }
+  const lw = Math.max(8, Math.min(26, G.rowH * 0.32));
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  for (const [col, path] of byColor) {           // outer glow
+    ctx.strokeStyle = hexA(col, 0.35); ctx.lineWidth = lw * 1.6; ctx.shadowColor = col; ctx.shadowBlur = lw * 1.2; ctx.stroke(path);
+  }
+  ctx.shadowBlur = 0;
+  for (const [col, path] of byColor) {           // tube body
+    ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.stroke(path);
+  }
+  ctx.save(); ctx.translate(0, -lw * 0.18);       // specular highlight for a glassy, chrome look
+  ctx.strokeStyle = "rgba(255,255,255,0.75)"; ctx.lineWidth = lw * 0.22;
+  for (const path of byColor.values()) ctx.stroke(path);
+  ctx.restore();
+  ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineWidth = lw * 0.9; ctx.shadowColor = "#ffffff"; ctx.shadowBlur = lw * 1.5;
+  ctx.stroke(hot); ctx.shadowBlur = 0;
+  ctx.lineCap = "butt"; ctx.lineJoin = "miter";
+}
+function setMode(m) {
+  S.mode = m; save(); resize();
+  document.getElementById("mode").textContent = m === "draw" ? "🥁 Pads" : "✏️ Rita";
+  if (m === "draw") { unlockAudio(); if (!SEQ.playing) seqStart(); }
 }
 function knobText(k, v) {
   if (k === "tune") { const st = Math.round((v - 0.5) * 24); return (st > 0 ? "+" : "") + st + " st"; }
@@ -801,6 +1014,8 @@ document.getElementById("flip").addEventListener("click", async () => {
   facing = facing === "user" ? "environment" : "user";
   try { await startCamera(); } catch { facing = facing === "user" ? "environment" : "user"; }
 });
+document.getElementById("mode").addEventListener("click", () => setMode(S.mode === "draw" ? "pads" : "draw"));
+document.getElementById("mode").textContent = S.mode === "draw" ? "🥁 Pads" : "✏️ Rita";
 document.getElementById("snd").addEventListener("click", () => {
   unlockAudio();
   setTimeout(() => play(6, 0.9), 30); // test sound: kick
@@ -810,7 +1025,7 @@ document.getElementById("snd").addEventListener("click", () => {
   if (ac && ac.state !== "running") unlockAudio();
 }, { capture: true, passive: true }));
 document.getElementById("skel").addEventListener("click", e => {
-  showSkel = !showSkel; e.currentTarget.textContent = "Händer: " + (showSkel ? "på" : "av");
+  showSkel = !showSkel; e.currentTarget.textContent = "Hand: " + (showSkel ? "på" : "av");
 });
 document.addEventListener("visibilitychange", async () => {
   if (document.visibilityState === "visible") { try { await navigator.wakeLock?.request("screen"); } catch {} if (ac) ac.resume(); }
